@@ -28,14 +28,13 @@ const _radarButtons = <(String, String)>[
   ('thinking', 'Думаю о тебе'),
   ('miss', 'Скучаю'),
   ('plans', 'Есть планы…'),
-  ('hug', 'Обнимаю'),
 ];
 
 const _categoryLabel = {
   'warm': 'ТЕПЛО',
   'fun': 'С УЛЫБКОЙ',
   'flirt': 'ФЛИРТ',
-  'deep': 'ПО-НАСТОЯЩЕМУ',
+  'deep': 'ГЛУБЖЕ',
 };
 
 class PairedToday extends ConsumerStatefulWidget {
@@ -85,38 +84,43 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
               Text(greeting(), style: display(26)),
             ]),
           ),
-          _StreakChip(streak: t['streak'] as int, complete: t['today_complete'] as bool),
+          _StreakChip(
+            streak: t['streak'] as int,
+            complete: t['today_complete'] as bool,
+            together: ref.watch(datesProvider).valueOrNull?['together_days'] as int?,
+          ),
         ]),
         const SizedBox(height: 16),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>(), partnerName: widget.partnerName),
         const _Upcoming(),
-        const _UsStrip(),
         _QuestionCard(data: t, partnerName: widget.partnerName),
         const SizedBox(height: 18),
         const _RadarRow(),
         const SizedBox(height: 16),
         const _DeckPromo(),
+        const SizedBox(height: 16),
+        const _UsStrip(),
       ]),
     );
   }
 }
 
 class _StreakChip extends StatelessWidget {
-  const _StreakChip({required this.streak, required this.complete});
+  const _StreakChip({required this.streak, required this.complete, this.together});
   final int streak;
   final bool complete;
+  final int? together;
 
   @override
   Widget build(BuildContext context) {
-    final days = switch (streak % 10) {
-      1 when streak % 100 != 11 => 'день',
-      2 || 3 || 4 when (streak % 100) < 12 || (streak % 100) > 14 => 'дня',
-      _ => 'дней',
-    };
+    // Как в макете: «12 дней вместе». Пока дата знакомства не указана — серия дней подряд.
+    final n = together ?? streak;
+    final days = '${plural(n, 'день', 'дня', 'дней')} ${together != null ? 'вместе' : 'подряд'}';
     return Tooltip(
-      message: complete
-          ? 'Сегодня вы оба уже отметились'
-          : 'Огонёк растёт, когда вы оба что-то делаете в течение дня',
+      message: (complete
+              ? 'Сегодня вы оба уже отметились'
+              : 'Огонёк разгорается, когда вы оба что-то делаете в течение дня') +
+          (together != null ? ' · дней подряд: $streak' : ''),
       child: Container(
         height: 36,
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -129,7 +133,7 @@ class _StreakChip extends StatelessWidget {
           Icon(Icons.local_fire_department_outlined,
               size: 17, color: complete ? const Color(0xFFF3B26B) : const Color(0xFFB98B5C)),
           const SizedBox(width: 6),
-          Text('$streak $days',
+          Text('$n $days',
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: VColors.goldText)),
         ]),
       ),
@@ -192,6 +196,7 @@ class _QuestionCard extends ConsumerStatefulWidget {
 
 class _QuestionCardState extends ConsumerState<_QuestionCard> {
   final _answer = TextEditingController();
+  bool _writing = false; // поле ответа раскрывается по кнопке «Ответить»
   bool _busy = false;
   String? _error;
 
@@ -240,7 +245,7 @@ class _QuestionCardState extends ConsumerState<_QuestionCard> {
             Row(mainAxisSize: MainAxisSize.min, children: [
               const Icon(Icons.check, size: 14, color: VColors.lavender),
               const SizedBox(width: 4),
-              Text('${widget.partnerName ?? 'Партнёр'} — есть ответ',
+              Text(widget.partnerName ?? 'ответ есть',
                   style: const TextStyle(fontSize: 12, color: VColors.lavender)),
             ]),
         ]),
@@ -249,15 +254,18 @@ class _QuestionCardState extends ConsumerState<_QuestionCard> {
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, height: 1.35)),
         const SizedBox(height: 14),
         if (mine == null) ...[
-          TextField(
-            controller: _answer,
-            minLines: 1,
-            maxLines: 4,
-            maxLength: 500,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(hintText: 'Ваш ответ', counterText: ''),
-          ),
-          const SizedBox(height: 8),
+          if (_writing) ...[
+            TextField(
+              controller: _answer,
+              autofocus: true,
+              minLines: 2,
+              maxLines: 5,
+              maxLength: 500,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(hintText: 'Ваш ответ', counterText: ''),
+            ),
+            const SizedBox(height: 8),
+          ],
           _Lock(text: partnerAnswered
               ? 'Ответ откроется после вашего'
               : '${widget.partnerName ?? 'Партнёр'} увидит ваш ответ, когда ответит сам'),
@@ -268,8 +276,8 @@ class _QuestionCardState extends ConsumerState<_QuestionCard> {
           const SizedBox(height: 12),
           GoldButton(
             height: 48,
-            onPressed: _busy ? null : _send,
-            child: Text(_busy ? 'Отправляем…' : 'Ответить'),
+            onPressed: _busy ? null : (_writing ? _send : () => setState(() => _writing = true)),
+            child: Text(_busy ? 'Отправляем…' : (_writing ? 'Отправить' : 'Ответить')),
           ),
         ] else ...[
           _AnswerBubble(who: 'Вы', text: mine),
@@ -361,10 +369,10 @@ class _RadarRowState extends ConsumerState<_RadarRow> {
           style: TextStyle(fontSize: 13, color: VColors.muted)),
       const SizedBox(height: 10),
       // Сетка 2×2 одинаковых кнопок, как в макете.
-      for (var row = 0; row < _radarButtons.length; row += 2) ...[
+      for (var row = 0; row < _radarButtons.length; row += 3) ...[
         if (row > 0) const SizedBox(height: 8),
         Row(children: [
-          for (var i = row; i < row + 2 && i < _radarButtons.length; i++) ...[
+          for (var i = row; i < row + 3 && i < _radarButtons.length; i++) ...[
             if (i > row) const SizedBox(width: 8),
             Expanded(
               child: _RadarButton(
@@ -435,8 +443,7 @@ class _UsStrip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final dates = ref.watch(datesProvider).valueOrNull;
     final reminders = ref.watch(remindersProvider).valueOrNull ?? const [];
-    final together = dates?['together_days'] as int?;
-    final next = ((dates?['items'] as List?) ?? const [])
+        final next = ((dates?['items'] as List?) ?? const [])
         .cast<Map>()
         .where((i) => (i['days_left'] as int) >= 0 && (i['days_left'] as int) <= 30)
         .firstOrNull;
@@ -450,7 +457,6 @@ class _UsStrip extends ConsumerWidget {
     }).take(3).toList();
 
     final chips = <Widget>[
-      if (together != null) _InfoChip(icon: Icons.favorite, text: '$together ${plural(together, 'день', 'дня', 'дней')} вместе'),
       if (next != null)
         _InfoChip(
           icon: Icons.event,
@@ -471,9 +477,10 @@ class _UsStrip extends ConsumerWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
+            style: TextButton.styleFrom(foregroundColor: VColors.muted),
             onPressed: () => addReminder(context, ref),
-            icon: const Icon(Icons.add, size: 18, color: VColors.gold),
-            label: const Text('Напоминание', style: TextStyle(color: VColors.gold)),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Напоминание'),
           ),
         ),
       ]),

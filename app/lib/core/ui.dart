@@ -148,7 +148,8 @@ class Initial extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final letter = (name == null || name!.trim().isEmpty) ? (me ? 'Я' : '♥') : name!.trim()[0].toUpperCase();
+    final empty = name == null || name!.trim().isEmpty;
+    final letter = empty ? (me ? 'Я' : '') : name!.trim()[0].toUpperCase();
     return Container(
       width: size,
       height: size,
@@ -158,8 +159,10 @@ class Initial extends StatelessWidget {
         color: me ? const Color(0xFF2E2A63) : VColors.avatar,
         border: Border.all(color: me ? VColors.gold : VColors.lavender, width: 1.5),
       ),
-      child: Text(letter,
-          style: display(size * 0.4, color: me ? VColors.goldText : VColors.lavenderText)),
+      child: letter.isEmpty
+          // Имя партнёра ещё не указано — контур человека вместо буквы (без эмодзи).
+          ? Icon(Icons.person_outline, size: size * 0.5, color: VColors.lavenderText)
+          : Text(letter, style: display(size * 0.4, color: me ? VColors.goldText : VColors.lavenderText)),
     );
   }
 }
