@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -56,3 +56,53 @@ class PairMember(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(16))  # initiator | invited
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- Этап 2: вопрос дня, радар, огонёк ----------
+
+class Question(Base):
+    """Вопрос дня. Позже управляется через Directus; стартовый набор — app/content/questions.py."""
+
+    __tablename__ = "questions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    text: Mapped[str] = mapped_column(String(300))
+    category: Mapped[str] = mapped_column(String(16))  # warm | fun | flirt | deep
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class DailyAnswer(Base):
+    __tablename__ = "daily_answers"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", "day", name="uq_one_answer_per_day"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    day: Mapped[date] = mapped_column(Date)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"))
+    text: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Activity(Base):
+    """Отметка «человек что-то сделал в этот день» — из неё считается огонёк пары."""
+
+    __tablename__ = "activity"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", "day", name="uq_activity_per_day"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    day: Mapped[date] = mapped_column(Date)
+
+
+class RadarSignal(Base):
+    __tablename__ = "radar_signals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    from_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(24))
+    day: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -1,39 +1,11 @@
 """End-to-end flow: two people log in by e-mail code and become a pair."""
-import os
+from httpx import AsyncClient
 
-os.environ["VECHER_DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
-os.environ["VECHER_ENV"] = "dev"
-os.environ["VECHER_JWT_SECRET"] = "test-secret"
-
-import pytest  # noqa: E402
-from httpx import ASGITransport, AsyncClient  # noqa: E402
-
-from app.db import Base, engine  # noqa: E402
-from app.main import app  # noqa: E402
-
-
-@pytest.fixture(autouse=True)
-async def fresh_db():
-    from app import models  # noqa: F401
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-
-
-@pytest.fixture
-async def client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        yield c
+from conftest import login as _login
 
 
 async def login(client: AsyncClient, email: str) -> str:
-    r = await client.post("/auth/request-code", json={"email": email})
-    assert r.status_code == 200
-    code = r.json()["dev_code"]
-    r = await client.post("/auth/verify", json={"email": email, "code": code})
-    assert r.status_code == 200, r.text
-    return r.json()["access_token"]
+    return (await _login(client, email))["Authorization"].removeprefix("Bearer ")
 
 
 async def test_health(client):

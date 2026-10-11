@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import 'paired_today.dart';
 
 /// Состояние пары с сервера: null — пары нет, иначе pending (ждём партнёра) или active.
 final pairProvider = FutureProvider.autoDispose<Map<String, dynamic>?>((ref) async {
@@ -34,7 +35,10 @@ class TodayScreen extends ConsumerWidget {
       ),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () => ref.refresh(pairProvider.future),
+          onRefresh: () async {
+            ref.invalidate(todayProvider);
+            await ref.refresh(pairProvider.future);
+          },
           child: ListView(padding: const EdgeInsets.all(20), children: [
             pair.when(
               loading: () => const Padding(
@@ -47,7 +51,7 @@ class TodayScreen extends ConsumerWidget {
               data: (p) {
                 if (p == null) return const _NoPair();
                 if (p['status'] == 'pending') return _Waiting(code: p['invite_code'] as String?);
-                return const _Paired();
+                return const PairedToday();
               },
             ),
           ]),
@@ -207,27 +211,6 @@ class _Waiting extends StatelessWidget {
       const SizedBox(height: 12),
       const Text('Потяните вниз, чтобы обновить.',
           textAlign: TextAlign.center, style: TextStyle(color: VColors.muted, fontSize: 13)),
-    ]);
-  }
-}
-
-class _Paired extends StatelessWidget {
-  const _Paired();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Добрый вечер', style: display(28)),
-      const SizedBox(height: 16),
-      const _Card(
-        highlight: true,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('ВЫ В ПАРЕ', style: TextStyle(letterSpacing: 1.5, fontSize: 12, color: Color(0xFFE2B57C))),
-          SizedBox(height: 8),
-          Text('Скоро здесь появятся вопрос дня, радар и огонёк.',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        ]),
-      ),
     ]);
   }
 }

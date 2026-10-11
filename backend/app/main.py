@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import create_all
-from .routers import auth, pairs
+from .routers import auth, pairs, today
 
 logging.basicConfig(level=logging.INFO)
 
@@ -34,6 +34,7 @@ app.add_middleware(
 )
 app.include_router(auth.router)
 app.include_router(pairs.router)
+app.include_router(today.router)
 
 
 @app.get("/health", tags=["system"])

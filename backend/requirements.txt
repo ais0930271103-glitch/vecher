@@ -6,3 +6,4 @@ aiosqlite>=0.20
 pydantic-settings>=2.3
 pydantic[email]>=2.7
 pyjwt>=2.8
+tzdata>=2024.1  # часовые пояса на Windows
