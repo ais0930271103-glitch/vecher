@@ -70,13 +70,35 @@ class FcmSender:
 
 _sender: FcmSender | None = None
 _sender_checked = False
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def find_key() -> Path:
+    """Где лежит ключ Firebase.
+
+    Относительный путь считаем от папки backend (а не от папки, где запущен сервер).
+    Если файла с таким именем нет — берём единственный скачанный из Firebase
+    `*firebase-adminsdk*.json` в папке backend (его не обязательно переименовывать).
+    """
+    path = Path(get_settings().firebase_credentials)
+    if not path.is_absolute():
+        path = BACKEND_DIR / path
+    if path.exists() or path.name != "firebase-key.json":  # своё имя в настройках — без догадок (и в тестах)
+        return path
+    for candidate in (path.with_name(path.name + ".json"), *sorted(BACKEND_DIR.glob("*firebase-adminsdk*.json"))):
+        if candidate.exists():
+            return candidate
+    return path
 
 
 def get_sender() -> FcmSender | None:
+    """Ключ ищем при первом уведомлении; если не нашли — ищем снова при следующем (без перезапуска сервера)."""
     global _sender, _sender_checked
+    if _sender is None:
+        _sender_checked = False
     if not _sender_checked:
         _sender_checked = True
-        path = Path(get_settings().firebase_credentials)
+        path = find_key()
         if path.exists():
             try:
                 _sender = FcmSender(path)
@@ -84,7 +106,7 @@ def get_sender() -> FcmSender | None:
             except Exception as e:  # noqa: BLE001
                 log.error("Push: не удалось прочитать ключ Firebase: %s", e)
         else:
-            log.info("Push: ключа Firebase нет (%s) — уведомления только в логе", path)
+            log.warning("Push: ключа Firebase нет (%s) — уведомления только в логе", path)
     return _sender
 
 
