@@ -406,3 +406,38 @@ class UserCity(Base):
     travel_city: Mapped[str | None] = mapped_column(String(60))
     travel_tz: Mapped[str | None] = mapped_column(String(40))
     travel_until: Mapped[date | None] = mapped_column(Date)  # включительно; пусто — пока не вернётся
+
+
+# ---------- Чат пары ----------
+
+class ChatMessage(Base):
+    """Сообщение в чате пары. Текст и подпись карточки хранятся зашифрованными.
+
+    ref_* — «Обсудить»: к сообщению прикреплено совпадение, план, приглашение или письмо (снимок заголовка).
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    text: Mapped[str | None] = mapped_column(Encrypted())
+    ref_kind: Mapped[str | None] = mapped_column(String(16))  # match | plan | invite | letter
+    ref_id: Mapped[str | None] = mapped_column(String(64))
+    ref_title: Mapped[str | None] = mapped_column(Encrypted())
+    reply_to_id: Mapped[str | None] = mapped_column(String(36))
+    reaction: Mapped[str | None] = mapped_column(String(8))  # реакция партнёра
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ChatRead(Base):
+    """До какого момента человек прочитал чат — для непрочитанных и «прочитано»."""
+
+    __tablename__ = "chat_reads"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", name="uq_chat_read"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

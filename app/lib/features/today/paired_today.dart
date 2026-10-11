@@ -12,6 +12,7 @@ import '../us/reminders_screen.dart';
 import '../us/us_screen.dart';
 import '../wishes/wishes_screen.dart' show decksProvider;
 import 'invites.dart';
+import '../chat/chat_screen.dart';
 
 /// Данные экрана «Сегодня» для пары: GET /today.
 final todayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -72,6 +73,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
       ref.invalidate(inboxProvider);
       ref.invalidate(incomingSurprisesProvider);
       ref.invalidate(invitesProvider);
+      ref.invalidate(chatUnreadProvider);
     });
   }
 
@@ -100,6 +102,8 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
               Text(greeting(), style: display(26)),
             ]),
           ),
+          _ChatButton(unread: ref.watch(chatUnreadProvider).valueOrNull ?? 0),
+          const SizedBox(width: 8),
           _StreakChip(
             streak: t['streak'] as int,
             complete: t['today_complete'] as bool,
@@ -673,6 +677,15 @@ class _FromPartner extends ConsumerWidget {
                 ),
                 actions: [
                   TextButton(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      final t = l['text'] as String;
+                      openChat(context, kind: 'letter', id: l['id'] as String,
+                          title: t.length > 80 ? '${t.substring(0, 80)}…' : t);
+                    },
+                    child: const Text('Ответить в чате', style: TextStyle(color: VColors.muted)),
+                  ),
+                  TextButton(
                     onPressed: () => Navigator.of(ctx).pop(),
                     child: const Text('Закрыть', style: TextStyle(color: VColors.gold)),
                   ),
@@ -883,5 +896,43 @@ class _PartnerMood extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+/// Вход в чат пары с числом непрочитанных.
+class _ChatButton extends ConsumerWidget {
+  const _ChatButton({required this.unread});
+  final int unread;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Stack(clipBehavior: Clip.none, children: [
+      Material(
+        color: const Color(0xFF26202F),
+        shape: const CircleBorder(side: BorderSide(color: Color(0x4DF3C98B))),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () async {
+            openChat(context);
+          },
+          child: const SizedBox(
+            width: 38,
+            height: 38,
+            child: Icon(Icons.chat_bubble_outline, size: 18, color: VColors.goldText),
+          ),
+        ),
+      ),
+      if (unread > 0)
+        Positioned(
+          right: -4,
+          top: -4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(color: VColors.coral, borderRadius: BorderRadius.circular(10)),
+            child: Text(unread > 9 ? '9+' : '$unread',
+                style: const TextStyle(color: VColors.ink, fontSize: 11, fontWeight: FontWeight.w700)),
+          ),
+        ),
+    ]);
   }
 }

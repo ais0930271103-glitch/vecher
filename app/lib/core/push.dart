@@ -81,6 +81,9 @@ void _open(Map<String, dynamic> data) {
       router.go('/us/reminders');
     case 'dates':
       router.go('/us/dates');
+    case 'chat':
+      router.go('/today');
+      router.push('/chat');
     default:
       router.go('/today');
   }

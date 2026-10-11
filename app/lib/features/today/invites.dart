@@ -5,6 +5,7 @@ import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
+import '../chat/chat_screen.dart';
 
 /// Мягкие приглашения пары: GET /invites.
 final invitesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
@@ -145,6 +146,11 @@ class _IncomingState extends ConsumerState<_Incoming> {
         TextButton(
           onPressed: _busy ? null : () => _answer('not_today'),
           child: const Text('Не сегодня, но мне приятно', style: TextStyle(color: VColors.link)),
+        ),
+        TextButton.icon(
+          onPressed: () => openChat(context, kind: 'invite', id: i['id'] as String, title: i['title'] as String),
+          icon: const Icon(Icons.chat_bubble_outline, size: 16, color: VColors.muted),
+          label: const Text('Обсудить в чате', style: TextStyle(color: VColors.muted)),
         ),
       ]),
     );

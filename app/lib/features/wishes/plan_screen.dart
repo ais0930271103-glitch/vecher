@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../chat/chat_screen.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
@@ -102,7 +103,14 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
             ),
           ),
           data: (p) => ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), children: [
-            const TopBar(title: 'План вечера'),
+            TopBar(
+              title: 'План вечера',
+              trailing: IconButton(
+                tooltip: 'Обсудить в чате',
+                icon: const Icon(Icons.chat_bubble_outline, color: VColors.goldText),
+                onPressed: () => openChat(context, kind: 'plan', id: '${widget.cardId}', title: p['text'] as String),
+              ),
+            ),
             const SizedBox(height: 16),
             _Header(p: p),
             const SizedBox(height: 18),

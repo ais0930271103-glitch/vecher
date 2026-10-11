@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/auth/city_screen.dart';
+import '../features/chat/chat_screen.dart';
 import '../features/auth/code_screen.dart';
 import '../features/auth/consent_screen.dart';
 import '../features/auth/email_screen.dart';
@@ -36,6 +37,7 @@ final router = GoRouter(
     GoRoute(path: '/name', builder: (_, __) => const NameScreen()),
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(path: '/city', builder: (_, __) => const CityScreen()),
+    GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
     // Ссылка-приглашение: запоминаем код и идём обычным путём (вход → согласие → имя → «Сегодня»).
     GoRoute(path: '/i/:code', builder: (_, state) => _InviteLink(code: state.pathParameters['code']!)),
     GoRoute(
