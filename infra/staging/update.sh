@@ -2,6 +2,7 @@
 # Обновить тестовый сервер: свежий код из GitHub → пересборка → проверка.
 set -euo pipefail
 cd "$(dirname "$0")"
+mkdir -p /opt/vecher-test/downloads  # vecher.apk и version.json для обновления приложения
 git -C ../.. pull --ff-only
 docker compose up -d --build
 for i in $(seq 1 30); do

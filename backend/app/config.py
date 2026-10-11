@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""  # пусто — как smtp_user
+    # Папка с vecher.apk и version.json для обновления приложения без магазина.
+    downloads_dir: str = "downloads"
     # Адрес сайта для ссылок-приглашений: <public_url>/i/<код>
     public_url: str = "https://вечер.online"
     free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки

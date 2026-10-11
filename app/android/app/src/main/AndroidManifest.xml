@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Интернет нужен и в релизной сборке (в отладочной Flutter добавляет его сам). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Установка обновления, скачанного из самого приложения (пока «Вечер» не в магазине). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="Вечер"
         android:name="${applicationName}"

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/privacy.dart';
+import '../../core/updater.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../auth/city_screen.dart';
@@ -324,6 +325,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             _LinkRow(title: 'Почта', subtitle: me?['email'] as String? ?? '—'),
             _LinkRow(title: 'Выйти', onTap: _logout),
             _LinkRow(title: 'Удалить аккаунт', danger: true, onTap: _delete),
+          ]),
+          const SizedBox(height: 24),
+          const SectionLabel('Приложение', color: VColors.label),
+          const SizedBox(height: 10),
+          _Group(children: [
+            FutureBuilder<String>(
+              future: currentVersionLabel(),
+              builder: (context, snap) => _LinkRow(
+                title: 'Проверить обновления',
+                subtitle: 'Версия ${snap.data ?? '…'}',
+                onTap: () => checkForUpdate(context, manual: true),
+              ),
+            ),
           ]),
           const SizedBox(height: 20),
           const Text(

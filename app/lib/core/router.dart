@@ -25,6 +25,7 @@ import '../features/wishes/swipe_screen.dart';
 import '../features/wishes/wishes_screen.dart';
 import 'api.dart';
 import 'push.dart';
+import 'updater.dart';
 import 'theme.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
@@ -119,6 +120,12 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
     initPush(ref.read(dioProvider));
     // Значок непрочитанных на «Чат» — раз в 10 секунд (мгновенно — с сервером).
     _unreadPoll = Timer.periodic(const Duration(seconds: 10), (_) => ref.invalidate(chatUnreadProvider));
+    // Новая версия приложения на сервере — предложим обновиться (раз за запуск).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (mounted) checkForUpdate(context);
+      });
+    });
   }
 
   Timer? _unreadPoll;
