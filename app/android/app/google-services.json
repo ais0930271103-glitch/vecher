@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "334022996123",
+    "project_id": "vecher-test-7e4b1",
+    "storage_bucket": "vecher-test-7e4b1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:334022996123:android:5fe09c84e81e53f77e563e",
+        "android_client_info": {
+          "package_name": "online.vecher.test.prototype0040"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfsA5ZU4NBSGSDmZ1MQI_J_yBS2gZmREM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:334022996123:android:f34a950b92bce61b7e563e",
+        "android_client_info": {
+          "package_name": "online.vecher.vecher_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCfsA5ZU4NBSGSDmZ1MQI_J_yBS2gZmREM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
