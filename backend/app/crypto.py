@@ -27,7 +27,7 @@ def _keys() -> list[tuple[str, bytes]]:
     s = get_settings()
     raw = (s.data_keys or "").strip()
     if not raw:
-        if s.env == "prod":
+        if s.env != "dev":
             raise RuntimeError("VECHER_DATA_KEYS не задан — без ключа шифрования сервер не запускается")
         # Разработка и тесты: ключ из jwt_secret, чтобы ничего не настраивать.
         return [("dev", hashlib.sha256(("data-key:" + s.jwt_secret).encode()).digest())]

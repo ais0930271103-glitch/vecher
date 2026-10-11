@@ -25,3 +25,5 @@ app/pubspec.lock.bak
 # os
 .DS_Store
 Thumbs.db
+infra/staging/.env
+infra/staging/secrets/

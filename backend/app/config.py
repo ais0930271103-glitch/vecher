@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     radar_daily_limit: int = 30
     # Ключи шифрования личных данных в базе: "k1:<base64 32 байта>[,k0:<старый>]". В dev можно не задавать.
     data_keys: str = ""
+    # Почта для кодов входа (рег.ру): smtp_host=mail.hosting.reg.ru, порт 465, ящик и пароль — в .env.
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""  # пусто — как smtp_user
     # Адрес сайта для ссылок-приглашений: <public_url>/i/<код>
     public_url: str = "https://вечер.online"
     free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки

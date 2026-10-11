@@ -1,0 +1,45 @@
+# «Вечер» — тестовый сервер (api-test.вечер.online) на Aeza.
+# Отдельный проект Docker «vecher-test»: своя сеть, свои тома, порт только на 127.0.0.1.
+# krug не трогаем: другое имя проекта, другие порты, никаких общих томов и сетей.
+#
+# Запуск (из /opt/vecher-test/repo/infra/staging):  docker compose up -d --build
+
+name: vecher-test
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vecher
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте в .env}
+      POSTGRES_DB: vecher
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    mem_limit: 384m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vecher"]
+      interval: 5s
+      retries: 20
+
+  api:
+    build: ../../backend
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: .env
+    environment:
+      VECHER_ENV: staging
+      VECHER_DATABASE_URL: postgresql+asyncpg://vecher:${POSTGRES_PASSWORD}@db:5432/vecher
+      VECHER_FIREBASE_CREDENTIALS: /run/vecher/firebase-key.json
+    volumes:
+      - ./secrets:/run/vecher:ro
+    ports: ["127.0.0.1:${API_PORT:-8092}:8000"]
+    mem_limit: 320m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      retries: 5
+
+volumes:
+  db-data:
