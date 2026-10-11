@@ -24,6 +24,18 @@ final upcomingProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>(
   return (r.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 });
 
+/// Письма от партнёра, которые уже пришли: GET /letters/inbox.
+final inboxProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final r = await ref.read(dioProvider).get('/letters/inbox');
+  return (r.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+});
+
+/// Сюрпризы от партнёра (до назначенного времени — только время): GET /surprises/incoming.
+final incomingSurprisesProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final r = await ref.read(dioProvider).get('/surprises/incoming');
+  return (r.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+});
+
 const _radarButtons = <(String, String)>[
   ('thinking', 'Думаю о тебе'),
   ('miss', 'Скучаю'),
@@ -56,6 +68,8 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
       ref.invalidate(todayProvider);
       ref.invalidate(upcomingProvider);
       ref.invalidate(remindersProvider);
+      ref.invalidate(inboxProvider);
+      ref.invalidate(incomingSurprisesProvider);
     });
   }
 
@@ -92,6 +106,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         ]),
         const SizedBox(height: 16),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>(), partnerName: widget.partnerName),
+        _FromPartner(partnerName: widget.partnerName),
         const _Upcoming(),
         _QuestionCard(data: t, partnerName: widget.partnerName),
         const SizedBox(height: 18),
@@ -605,6 +620,106 @@ class _DeckPromo extends ConsumerWidget {
             ),
             const Icon(Icons.chevron_right, color: VColors.muted),
           ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Письма на утро и сюрпризы от партнёра.
+class _FromPartner extends ConsumerWidget {
+  const _FromPartner({this.partnerName});
+  final String? partnerName;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Имя в именительном падеже: «Аня · пришло…», без склонений.
+    final who = partnerName ?? 'Партнёр';
+    final letters = (ref.watch(inboxProvider).valueOrNull ?? const []).where((l) => l['read'] != true).toList();
+    final surprises = ref.watch(incomingSurprisesProvider).valueOrNull ?? const [];
+    if (letters.isEmpty && surprises.isEmpty) return const SizedBox.shrink();
+
+    return Column(children: [
+      for (final l in letters)
+        _PartnerCard(
+          icon: Icons.mail_outline,
+          title: 'Письмо для вас',
+          subtitle: '$who · пришло ${formatWhen(DateTime.parse(l['deliver_at'] as String))}',
+          onTap: () async {
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: VColors.card,
+                title: Text('Письмо для вас', style: display(20)),
+                content: SingleChildScrollView(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text(l['text'] as String, style: const TextStyle(fontSize: 16, height: 1.5)),
+                    const SizedBox(height: 12),
+                    Text('— $who', style: const TextStyle(color: VColors.label)),
+                  ]),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Закрыть', style: TextStyle(color: VColors.gold)),
+                  ),
+                ],
+              ),
+            );
+            try {
+              await ref.read(dioProvider).post('/letters/${l['id']}/read');
+            } catch (_) {}
+            ref.invalidate(inboxProvider);
+          },
+        ),
+      for (final x in surprises)
+        _PartnerCard(
+          icon: Icons.card_giftcard,
+          title: x['revealed'] == true ? 'Сюрприз: ${x['title']}' : 'Вас ждёт сюрприз',
+          subtitle: x['revealed'] == true
+              ? ((x['note'] as String?) ?? '$who приготовил(а) это для вас')
+              : '$who готовит · ${formatWhen(DateTime.parse(x['at'] as String))} — подробности откроются в этот момент',
+        ),
+    ]);
+  }
+}
+
+class _PartnerCard extends StatelessWidget {
+  const _PartnerCard({required this.icon, required this.title, required this.subtitle, this.onTap});
+  final IconData icon;
+  final String title, subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Ink(
+            padding: const EdgeInsets.all(16),
+            decoration: glowBox(radius: 20),
+            child: Row(children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(color: const Color(0xFF2C2440), borderRadius: BorderRadius.circular(14)),
+                child: Icon(icon, color: VColors.gold),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: const TextStyle(fontSize: 13, color: VColors.text2)),
+                ]),
+              ),
+              if (onTap != null) const Icon(Icons.chevron_right, color: VColors.muted),
+            ]),
+          ),
         ),
       ),
     );

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/code_screen.dart';
 import '../features/auth/email_screen.dart';
 import '../features/auth/name_screen.dart';
+import '../features/solo/solo_screen.dart';
 import '../features/today/today_screen.dart';
 import '../features/us/dates_screen.dart';
 import '../features/us/person_screens.dart';
@@ -66,6 +67,9 @@ final router = GoRouter(
           ),
         ]),
         StatefulShellBranch(routes: [
+          GoRoute(path: '/solo', builder: (_, __) => const SoloScreen()),
+        ]),
+        StatefulShellBranch(routes: [
           GoRoute(
             path: '/us',
             builder: (_, __) => const UsScreen(),
@@ -89,6 +93,7 @@ class _HomeShell extends StatelessWidget {
   static const _tabs = <(IconData, String)>[
     (Icons.nightlight_outlined, 'Сегодня'),
     (Icons.style_outlined, 'Вместе'),
+    (Icons.person_outline, 'Я'),
     (Icons.favorite_border, 'Пара'),
   ];
 

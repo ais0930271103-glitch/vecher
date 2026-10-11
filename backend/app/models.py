@@ -245,3 +245,44 @@ class Reminder(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- Вкладка «Я»: моё пространство ----------
+
+class Letter(Base):
+    """Письмо партнёру с отложенной доставкой (по умолчанию — к 8:00 утра)."""
+
+    __tablename__ = "letters"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    text: Mapped[str] = mapped_column(String(2000))
+    deliver_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class QuietWish(Base):
+    """Тихое желание — видно только автору."""
+
+    __tablename__ = "quiet_wishes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Surprise(Base):
+    """Сюрприз для партнёра: до назначенного времени он видит только, что сюрприз будет и когда."""
+
+    __tablename__ = "surprises"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(120))
+    note: Mapped[str | None] = mapped_column(String(500))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
