@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1096784193470",
+    "project_id": "voiny-bobra",
+    "storage_bucket": "voiny-bobra.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1096784193470:android:42398da7bc02d36403fbef",
+        "android_client_info": {
+          "package_name": "ru.krug.krug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAddexZiORf3M-KpPtOsRRi45eVhYCkhFA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
