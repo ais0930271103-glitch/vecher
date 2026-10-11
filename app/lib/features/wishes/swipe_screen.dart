@@ -454,9 +454,9 @@ class _MatchScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final both = match['kind'] == 'yes';
     const steps = [
-      'Откройте план вечера — там варианты, продукты и шаги',
+      'Открой план вечера — там варианты, продукты и шаги',
       'Выберите вариант вдвоём: как только совпадёт — план готов',
-      'Назначьте день — план появится на «Сегодня» у обоих',
+      'Назначь день — план появится на «Сегодня» у обоих',
     ];
     return Material(
       color: Colors.transparent,

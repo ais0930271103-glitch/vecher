@@ -133,7 +133,7 @@ class _NoPairState extends ConsumerState<_NoPair> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Добро пожаловать', style: display(28)),
       const SizedBox(height: 8),
-      const Text('«Вечер» раскрывается вдвоём. Пригласите партнёра или введите его код.',
+      const Text('«Вечер» раскрывается вдвоём. Пригласи партнёра или введи его код.',
           style: TextStyle(color: VColors.soft, fontSize: 16)),
       const SizedBox(height: 20),
       _Card(
@@ -142,7 +142,7 @@ class _NoPairState extends ConsumerState<_NoPair> {
           const Text('Пригласить партнёра',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          const Text('Получите код и отправьте его любым мессенджером.',
+          const Text('Получи код и отправь его любым мессенджером.',
               style: TextStyle(color: VColors.soft)),
           const SizedBox(height: 14),
           GoldButton(
@@ -194,7 +194,7 @@ class _Waiting extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Ждём партнёра', style: display(28)),
       const SizedBox(height: 8),
-      const Text('Отправьте код. Как только партнёр его введёт, «Вечер» откроется для вас двоих.',
+      const Text('Отправь код. Как только партнёр его введёт, «Вечер» откроется для вас двоих.',
           style: TextStyle(color: VColors.soft, fontSize: 16)),
       const SizedBox(height: 20),
       _Card(
@@ -208,7 +208,7 @@ class _Waiting extends StatelessWidget {
             onPressed: () {
               Clipboard.setData(ClipboardData(text: 'Присоединяйся ко мне в «Вечере»: код $pretty'));
               ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('Скопировано — отправьте партнёру')));
+                  .showSnackBar(const SnackBar(content: Text('Скопировано — отправь партнёру')));
             },
             icon: const Icon(Icons.copy),
             label: const Text('Скопировать приглашение'),
@@ -216,7 +216,7 @@ class _Waiting extends StatelessWidget {
         ]),
       ),
       const SizedBox(height: 12),
-      const Text('Потяните вниз, чтобы обновить.',
+      const Text('Потяни вниз, чтобы обновить.',
           textAlign: TextAlign.center, style: TextStyle(color: VColors.muted, fontSize: 13)),
     ]);
   }

@@ -25,7 +25,7 @@ def _utc(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        raise HTTPException(422, "Укажите время с часовым поясом")
+        raise HTTPException(422, "Укажи время с часовым поясом")
     return dt.astimezone(timezone.utc)
 
 
@@ -230,7 +230,7 @@ async def add_date(body: DateIn, ctx: PairContext = Depends(active_pair),
             select(PairDate.id).where(PairDate.pair_id == ctx.pair.id, PairDate.kind == "met")
         )).scalar_one_or_none()
         if exists:
-            raise HTTPException(409, "Дата знакомства уже есть — удалите её, чтобы указать другую")
+            raise HTTPException(409, "Дата знакомства уже есть — удали её, чтобы указать другую")
     session.add(PairDate(pair_id=ctx.pair.id, title=body.title.strip(), day=body.day, kind=body.kind,
                          yearly=body.yearly, created_by=ctx.user.id))
     await session.commit()

@@ -169,7 +169,7 @@ async def _require_unlocked(session: AsyncSession, ctx: PairContext, card_id: in
     await _matched_plan(session, ctx, card_id)
     unlock = await _unlock(session, ctx, card_id)
     if unlock is None:
-        raise HTTPException(403, "Сначала откройте план")
+        raise HTTPException(403, "Сначала открой план")
     return unlock
 
 
@@ -245,7 +245,7 @@ async def schedule(card_id: int, body: ScheduleIn, ctx: PairContext = Depends(ac
                    session: AsyncSession = Depends(get_session)):
     unlock = await _require_unlocked(session, ctx, card_id)
     if body.at is not None and body.at.tzinfo is None:
-        raise HTTPException(422, "Укажите время с часовым поясом")
+        raise HTTPException(422, "Укажи время с часовым поясом")
     # Храним в UTC: SQLite не сохраняет часовой пояс.
     unlock.scheduled_at = body.at.astimezone(timezone.utc) if body.at else None
     await session.commit()

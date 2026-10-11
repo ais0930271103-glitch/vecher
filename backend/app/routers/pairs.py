@@ -64,7 +64,7 @@ async def create_invite(user: User = Depends(current_user), session: AsyncSessio
     if m is not None:
         pair = await session.get(Pair, m.pair_id)
         if pair.status == "active":
-            raise HTTPException(status.HTTP_409_CONFLICT, "Вы уже в паре")
+            raise HTTPException(status.HTTP_409_CONFLICT, "Ты уже в паре")
         return await _out(session, pair, user.id)
     pair = Pair(invite_code=new_invite_code())
     session.add(pair)
@@ -81,7 +81,7 @@ async def join(body: JoinIn, user: User = Depends(current_user), session: AsyncS
     if pair is None or pair.status != "pending":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Приглашение не найдено или уже использовано")
     if await _membership(session, user.id) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Вы уже в паре или создали своё приглашение")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Ты уже в паре или создал(а) своё приглашение")
     session.add(PairMember(pair_id=pair.id, user_id=user.id, role="invited"))
     pair.status = "active"
     pair.invite_code = None  # одноразовый код

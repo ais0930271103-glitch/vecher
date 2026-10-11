@@ -32,7 +32,7 @@ class WishesScreen extends ConsumerWidget {
           child: ListView(padding: const EdgeInsets.all(20), children: [
             const Text(
               'Листайте карточки каждый сам. Партнёр увидит только то, чего вы хотите оба, '
-              '— ваше «да» без взаимности останется тайной.',
+              '— твоё «да» без взаимности останется тайной.',
               style: TextStyle(color: VColors.soft, fontSize: 15, height: 1.4),
             ),
             const SizedBox(height: 20),

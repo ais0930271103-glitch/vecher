@@ -71,8 +71,8 @@ class _Body extends ConsumerWidget {
         Expanded(
           child: Text(
             active
-                ? '${name ?? 'Партнёр'} сегодня уже здесь — загляните в «Сегодня»'
-                : '${name ?? 'Партнёр'} ответит позже — а пока это время для вас',
+                ? '${name ?? 'Партнёр'} сегодня уже здесь — загляни в «Сегодня»'
+                : '${name ?? 'Партнёр'} ответит позже — а пока это время для тебя',
             style: const TextStyle(fontSize: 13, color: VColors.muted),
           ),
         ),
@@ -91,7 +91,7 @@ class _Body extends ConsumerWidget {
             const SizedBox(width: 16),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Вы ответили на $swiped ${plural(swiped, 'карточку', 'карточки', 'карточек')}',
+                Text('Ты ответил(а) на $swiped ${plural(swiped, 'карточку', 'карточки', 'карточек')}',
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.35)),
                 const SizedBox(height: 4),
                 Text(
@@ -133,7 +133,7 @@ class _Body extends ConsumerWidget {
             icon: Icons.nightlight_outlined,
             lavender: true,
             title: 'Тихое желание',
-            subtitle: wishes.isEmpty ? 'Видно только вам' : 'Записано: ${wishes.length}',
+            subtitle: wishes.isEmpty ? 'Видно только тебе' : 'Записано: ${wishes.length}',
             onTap: () => _wish(context, ref),
           ),
           _Tile(
@@ -148,7 +148,7 @@ class _Body extends ConsumerWidget {
 
       if (pending.isNotEmpty || surprises.isNotEmpty) ...[
         const SizedBox(height: 18),
-        const SectionLabel('Уже готовите'),
+        const SectionLabel('Уже готовишь'),
         const SizedBox(height: 10),
         for (final l in pending)
           _Row(
@@ -168,7 +168,7 @@ class _Body extends ConsumerWidget {
 
       if (wishes.isNotEmpty) ...[
         const SizedBox(height: 18),
-        const SectionLabel('Тихие желания — только для вас'),
+        const SectionLabel('Тихие желания — только для тебя'),
         const SizedBox(height: 10),
         for (final w in wishes)
           _Row(
@@ -226,7 +226,7 @@ class _Body extends ConsumerWidget {
   Future<void> _letter(BuildContext context, WidgetRef ref, String? name) async {
     final text = await _sheetText(context,
         title: 'Письмо на утро',
-        hint: 'Напишите то, что хочется сказать с утра…',
+        hint: 'Напиши то, что хочется сказать с утра…',
         note: '${name ?? 'Партнёр'} получит его в 8:00 на экране «Сегодня»',
         maxLines: 8,
         maxLength: 2000,
@@ -239,7 +239,7 @@ class _Body extends ConsumerWidget {
     final text = await _sheetText(context,
         title: 'Тихое желание',
         hint: 'Чего хочется — даже если пока не готовы сказать вслух',
-        note: 'Это видите только вы',
+        note: 'Это видишь только ты',
         maxLines: 4,
         maxLength: 300,
         action: 'Сохранить');

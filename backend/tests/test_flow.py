@@ -69,3 +69,30 @@ async def test_name_at_registration(client):
     code = (await client.post("/auth/request-code", json={"email": "new@example.ru"})).json()["dev_code"]
     r = (await client.post("/auth/verify", json={"email": "new@example.ru", "code": code})).json()
     assert r["is_new"] is False and r["has_name"] is True
+
+
+async def test_code_requests_are_throttled(client):
+    from app.config import get_settings
+    s = get_settings()
+    old = s.otp_resend_seconds, s.otp_codes_per_hour, s.otp_failed_per_hour
+    try:
+        s.otp_resend_seconds = 60
+        assert (await client.post("/auth/request-code", json={"email": "x@example.ru"})).status_code == 200
+        assert (await client.post("/auth/request-code", json={"email": "x@example.ru"})).status_code == 429
+        # Другой e-mail не затронут.
+        assert (await client.post("/auth/request-code", json={"email": "y@example.ru"})).status_code == 200
+
+        # Перебор: новый код не обнуляет счётчик ошибок за час.
+        s.otp_resend_seconds, s.otp_failed_per_hour = 0, 3
+        for _ in range(3):
+            real = (await client.post("/auth/request-code", json={"email": "z@example.ru"})).json()["dev_code"]
+            wrong = f"{(int(real) + 1) % 1_000_000:06d}"
+            assert (await client.post("/auth/verify", json={"email": "z@example.ru", "code": wrong})).status_code == 400
+        real = (await client.post("/auth/request-code", json={"email": "z@example.ru"})).json()["dev_code"]
+        r = await client.post("/auth/verify", json={"email": "z@example.ru", "code": real})
+        assert r.status_code == 429
+
+        s.otp_codes_per_hour = 4
+        assert (await client.post("/auth/request-code", json={"email": "z@example.ru"})).status_code == 429
+    finally:
+        s.otp_resend_seconds, s.otp_codes_per_hour, s.otp_failed_per_hour = old

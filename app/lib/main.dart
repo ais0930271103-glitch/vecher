@@ -62,7 +62,7 @@ class _ErrorPanel extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         alignment: Alignment.topLeft,
         child: Text(
-          kReleaseMode ? 'Что-то пошло не так. Потяните вниз, чтобы обновить.' : 'Ошибка экрана:\n$message',
+          kReleaseMode ? 'Что-то пошло не так. Потяни вниз, чтобы обновить.' : 'Ошибка экрана:\n$message',
           style: const TextStyle(color: Color(0xFFF5A894), fontSize: 14, decoration: TextDecoration.none),
         ),
       ),

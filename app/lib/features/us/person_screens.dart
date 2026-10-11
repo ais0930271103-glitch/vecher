@@ -143,7 +143,7 @@ class _PartnerMemoScreenState extends ConsumerState<PartnerMemoScreen> {
           padding: const EdgeInsets.all(18),
           decoration: cardBox(radius: 18),
           child: const Text(
-            'Пока пусто. Попросите партнёра заполнить «О себе» в разделе «Пара» — '
+            'Пока пусто. Попроси партнёра заполнить «О себе» в разделе «Пара» — '
             'размеры, любимое, мечты. Это займёт пару минут.',
             style: TextStyle(color: VColors.soft, height: 1.4),
           ),
@@ -227,7 +227,7 @@ class _PartnerMemoScreenState extends ConsumerState<PartnerMemoScreen> {
   List<Widget> _notes(BuildContext context, List<Map<String, dynamic>> notes) {
     return [
       _Box(
-        label: 'Заметил(а) и запомнил(а) — видите только вы',
+        label: 'Заметил(а) и запомнил(а) — видишь только ты',
         trailing: Material(
           color: const Color(0xFF2A2938),
           borderRadius: BorderRadius.circular(16),
@@ -242,7 +242,7 @@ class _PartnerMemoScreenState extends ConsumerState<PartnerMemoScreen> {
           ),
         ),
         child: notes.isEmpty
-            ? const Text('Запишите, что партнёр упомянул вскользь: «хочу в Казань», серьги в витрине…',
+            ? const Text('Запиши, что партнёр упомянул вскользь: «хочу в Казань», серьги в витрине…',
                 style: TextStyle(fontSize: 14, height: 1.5, color: VColors.text2))
             : Column(children: [
                 for (final n in notes)
@@ -361,9 +361,9 @@ class AboutMeScreen extends ConsumerWidget {
           data: (p) {
             final myName = p['my_name'] as String?;
             return ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 32), children: [
-              const Text('Партнёр увидит это в своей памятке. Заполняйте что хотите — любое поле можно оставить пустым.',
+              const Text('Партнёр увидит это в своей памятке. Заполняй что хочешь — любое поле можно оставить пустым.',
                   style: TextStyle(color: VColors.soft, height: 1.4)),
-              _sectionTitle('Как вас называть'),
+              _sectionTitle('Как тебя называть'),
               _EditRow(
                 label: 'Имя',
                 value: myName,

@@ -91,7 +91,7 @@ class UsScreen extends ConsumerWidget {
                   icon: Icons.person_outline,
                   title: 'О себе',
                   subtitle: myFilled == 0
-                      ? 'Расскажите о себе — это станет памяткой для партнёра'
+                      ? 'Расскажи о себе — это станет памяткой для партнёра'
                       : 'Заполнено: $myFilled',
                   onTap: () => _go(context, ref, '/us/me'),
                 ),
@@ -106,7 +106,7 @@ class UsScreen extends ConsumerWidget {
                 _Tile(
                   icon: Icons.checklist,
                   title: 'Напоминания',
-                  subtitle: open == 0 ? 'Себе, партнёру или обоим' : 'Для вас: $open',
+                  subtitle: open == 0 ? 'Себе, партнёру или обоим' : 'Для тебя: $open',
                   onTap: () => _go(context, ref, '/us/reminders'),
                 ),
               ]);
@@ -143,7 +143,7 @@ class _TogetherCard extends StatelessWidget {
           ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Сколько вы вместе?', style: display(22)),
               const SizedBox(height: 6),
-              const Text('Укажите день знакомства — будем считать ваши дни.',
+              const Text('Укажи день знакомства — будем считать ваши дни.',
                   style: TextStyle(color: VColors.soft)),
               const SizedBox(height: 12),
               OutlinedButton(onPressed: onAdd, child: const Text('Указать дату')),

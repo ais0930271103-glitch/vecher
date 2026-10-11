@@ -40,7 +40,7 @@ async def current_user(
     try:
         payload = jwt.decode(creds.credentials, get_settings().jwt_secret, algorithms=["HS256"])
     except jwt.PyJWTError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия истекла, войдите снова")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия истекла, войди снова")
     user = await session.get(User, payload.get("sub"))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден")

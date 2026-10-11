@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
@@ -45,6 +45,17 @@ class MeOut(BaseModel):
 async def request_code(body: CodeRequest, session: AsyncSession = Depends(get_session)) -> dict:
     s = get_settings()
     email = body.email.lower()
+    now = datetime.now(timezone.utc)
+    recent = (await session.execute(
+        select(LoginCode.created_at).where(LoginCode.email == email, LoginCode.created_at >= now - timedelta(hours=1))
+        .order_by(LoginCode.created_at.desc())
+    )).scalars().all()
+    if recent:
+        last = recent[0] if recent[0].tzinfo else recent[0].replace(tzinfo=timezone.utc)
+        if (now - last).total_seconds() < s.otp_resend_seconds:
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Код уже отправлен — подожди минуту")
+    if len(recent) >= s.otp_codes_per_hour:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много запросов кода. Попробуй через час")
     code = new_otp()
     session.add(LoginCode(
         email=email,
@@ -64,6 +75,13 @@ async def verify(body: CodeVerify, session: AsyncSession = Depends(get_session))
     s = get_settings()
     email = body.email.lower()
     now = datetime.now(timezone.utc)
+    # Ошибки считаем по всем кодам за час: новый код не обнуляет счётчик перебора.
+    failed = (await session.execute(
+        select(func.coalesce(func.sum(LoginCode.attempts), 0))
+        .where(LoginCode.email == email, LoginCode.created_at >= now - timedelta(hours=1))
+    )).scalar_one()
+    if failed >= s.otp_failed_per_hour:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много неверных попыток. Попробуй через час")
     row = (await session.execute(
         select(LoginCode)
         .where(LoginCode.email == email, LoginCode.used_at.is_(None))
@@ -75,7 +93,7 @@ async def verify(body: CodeVerify, session: AsyncSession = Depends(get_session))
     if expires is not None and expires.tzinfo is None:  # SQLite drops tzinfo
         expires = expires.replace(tzinfo=timezone.utc)
     if row is None or expires < now or row.attempts >= s.otp_max_attempts:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Код устарел, запросите новый")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Код устарел, запроси новый")
     if row.code_hash != hash_otp(email, body.code):
         row.attempts += 1
         await session.commit()
@@ -103,7 +121,7 @@ async def set_my_name(body: NameIn, user: User = Depends(current_user),
     """Имя при регистрации — пара для этого не нужна."""
     name = body.display_name.strip()
     if not name:
-        raise HTTPException(422, "Введите имя")
+        raise HTTPException(422, "Введи имя")
     user.display_name = name
     await session.commit()
     return MeOut(id=user.id, email=user.email, display_name=user.display_name)

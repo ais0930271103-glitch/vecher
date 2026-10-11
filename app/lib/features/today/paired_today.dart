@@ -186,7 +186,7 @@ class _IncomingRadar extends ConsumerWidget {
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 3),
                   Text(
-                    signals.length > 1 ? 'И ещё ${signals.length - 1} · нажмите, чтобы отметить' : 'Нажмите, чтобы отметить',
+                    signals.length > 1 ? 'И ещё ${signals.length - 1} · нажми, чтобы отметить' : 'Нажми, чтобы отметить',
                     style: const TextStyle(fontSize: 13, color: VColors.text2),
                   ),
                 ]),
@@ -277,13 +277,13 @@ class _QuestionCardState extends ConsumerState<_QuestionCard> {
               maxLines: 5,
               maxLength: 500,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(hintText: 'Ваш ответ', counterText: ''),
+              decoration: const InputDecoration(hintText: 'Твой ответ', counterText: ''),
             ),
             const SizedBox(height: 8),
           ],
           _Lock(text: partnerAnswered
-              ? 'Ответ откроется после вашего'
-              : '${widget.partnerName ?? 'Партнёр'} увидит ваш ответ, когда ответит сам'),
+              ? 'Ответ откроется после твоего'
+              : '${widget.partnerName ?? 'Партнёр'} увидит твой ответ, когда ответит сам(а)'),
           if (_error != null) ...[
             const SizedBox(height: 8),
             Text(_error!, style: const TextStyle(color: Color(0xFFF5A894))),
@@ -295,12 +295,12 @@ class _QuestionCardState extends ConsumerState<_QuestionCard> {
             child: Text(_busy ? 'Отправляем…' : (_writing ? 'Отправить' : 'Ответить')),
           ),
         ] else ...[
-          _AnswerBubble(who: 'Вы', text: mine),
+          _AnswerBubble(who: 'Ты', text: mine),
           const SizedBox(height: 10),
           if (partner != null)
             _AnswerBubble(who: widget.partnerName ?? 'Партнёр', text: partner, accent: true)
           else
-            _Lock(text: 'Ждём ответ — ${widget.partnerName ?? 'партнёр'} увидит ваш, когда ответит сам'),
+            _Lock(text: 'Ждём ответ — ${widget.partnerName ?? 'партнёр'} увидит твой, когда ответит сам(а)'),
         ],
       ]),
     );
@@ -575,10 +575,10 @@ class _DeckPromo extends ConsumerWidget {
     final fresh = data['new_matches'] as int;
     final title = deck == null ? 'Совпадения' : 'Колода «${deck['title']}»';
     final subtitle = fresh > 0
-        ? 'Новых совпадений: $fresh — откройте план вечера'
+        ? 'Новых совпадений: $fresh — открой план вечера'
         : deck == null
-            ? 'Все колоды пройдены — смотрите, что совпало'
-            : '${deck['total']} карточек · вы ответили на ${deck['done']}';
+            ? 'Все колоды пройдены — смотри, что совпало'
+            : '${deck['total']} карточек · ты ответил(а) на ${deck['done']}';
     return Material(
       color: VColors.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -643,14 +643,14 @@ class _FromPartner extends ConsumerWidget {
       for (final l in letters)
         _PartnerCard(
           icon: Icons.mail_outline,
-          title: 'Письмо для вас',
+          title: 'Письмо для тебя',
           subtitle: '$who · пришло ${formatWhen(DateTime.parse(l['deliver_at'] as String))}',
           onTap: () async {
             await showDialog<void>(
               context: context,
               builder: (ctx) => AlertDialog(
                 backgroundColor: VColors.card,
-                title: Text('Письмо для вас', style: display(20)),
+                title: Text('Письмо для тебя', style: display(20)),
                 content: SingleChildScrollView(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                     Text(l['text'] as String, style: const TextStyle(fontSize: 16, height: 1.5)),
@@ -675,9 +675,9 @@ class _FromPartner extends ConsumerWidget {
       for (final x in surprises)
         _PartnerCard(
           icon: Icons.card_giftcard,
-          title: x['revealed'] == true ? 'Сюрприз: ${x['title']}' : 'Вас ждёт сюрприз',
+          title: x['revealed'] == true ? 'Сюрприз: ${x['title']}' : 'Тебя ждёт сюрприз',
           subtitle: x['revealed'] == true
-              ? ((x['note'] as String?) ?? '$who приготовил(а) это для вас')
+              ? ((x['note'] as String?) ?? '$who приготовил(а) это для тебя')
               : '$who готовит · ${formatWhen(DateTime.parse(x['at'] as String))} — подробности откроются в этот момент',
         ),
     ]);

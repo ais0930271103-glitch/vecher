@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     jwt_ttl_days: int = 30
     otp_ttl_minutes: int = 10
     otp_max_attempts: int = 5
+    # Защита от перебора кода: пауза между запросами и лимиты в час на один e-mail.
+    otp_resend_seconds: int = 60
+    otp_codes_per_hour: int = 5
+    otp_failed_per_hour: int = 10
     # Часовой пояс, по которому считается «сегодня» (вопрос дня, огонёк).
     timezone: str = "Europe/Moscow"
     radar_daily_limit: int = 30

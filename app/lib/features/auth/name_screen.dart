@@ -49,9 +49,9 @@ class _NameScreenState extends ConsumerState<NameScreen> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 40, 24, 24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Как вас зовут?', style: display(32)),
+            Text('Как тебя зовут?', style: display(32)),
             const SizedBox(height: 8),
-            const Text('Так вас будет видеть партнёр. Изменить можно потом в разделе «Пара».',
+            const Text('Так тебя будет видеть партнёр. Изменить можно в разделе «Пара».',
                 style: TextStyle(color: VColors.soft, fontSize: 16)),
             const SizedBox(height: 24),
             TextField(

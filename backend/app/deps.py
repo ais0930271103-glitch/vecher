@@ -33,7 +33,7 @@ async def active_pair(
     )).scalar_one_or_none()
     pair = await session.get(Pair, member.pair_id) if member else None
     if pair is None or pair.status != "active":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Сначала соединитесь с партнёром")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сначала соединись с партнёром")
     partner_id = (await session.execute(
         select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
     )).scalar_one()

@@ -167,7 +167,7 @@ async def answer_today(
         )
     )).scalar_one_or_none()
     if already is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Сегодня вы уже ответили")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сегодня ты уже ответил(а)")
     q = await question_for_day(session, ctx.pair.id, day)
     session.add(DailyAnswer(pair_id=ctx.pair.id, user_id=ctx.user.id, day=day, question_id=q.id, text=text))
     await mark_activity(session, ctx, day)

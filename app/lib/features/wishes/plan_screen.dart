@@ -178,10 +178,10 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
         chosen != null
             ? 'Вы выбрали вместе — осталось назначить время.'
             : theirs != null && mine == null
-                ? 'Партнёр уже выбрал вариант. Ваш ход!'
+                ? 'Партнёр уже выбрал вариант. Твой ход!'
                 : mine != null && theirs != null
                     ? 'Вы выбрали разное — договоритесь и выберите один.'
-                    : 'Выберите вариант. Как только выберете одинаково, план готов.',
+                    : 'Выбери вариант. Как только вы выберете одинаково — план готов.',
         style: const TextStyle(color: VColors.soft, fontSize: 15),
       ),
       const SizedBox(height: 14),
@@ -377,7 +377,7 @@ class _OptionCard extends StatelessWidget {
                   )
                 : GoldButton(
                     onPressed: busy || mine ? null : onVote,
-                    child: Text(mine ? 'Вы выбрали этот вариант' : 'Выбрать этот вариант'),
+                    child: Text(mine ? 'Ты выбрал(а) этот вариант' : 'Выбрать этот вариант'),
                   ),
           ),
         ],
@@ -405,7 +405,7 @@ class _ScheduleCard extends StatelessWidget {
           ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               const Text('Когда устроим?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
-              const Text('Назначьте день — план появится на экране «Сегодня» у вас обоих.',
+              const Text('Назначь день — план появится на экране «Сегодня» у вас обоих.',
                   style: TextStyle(color: VColors.muted, fontSize: 13)),
               const SizedBox(height: 12),
               FilledButton.icon(

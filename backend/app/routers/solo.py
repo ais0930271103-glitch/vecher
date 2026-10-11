@@ -24,7 +24,7 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 def _utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        raise HTTPException(422, "Укажите время с часовым поясом")
+        raise HTTPException(422, "Укажи время с часовым поясом")
     return dt.astimezone(timezone.utc)
 
 

@@ -43,7 +43,7 @@ class DatesScreen extends ConsumerWidget {
                 padding: EdgeInsets.all(32),
                 child: Center(
                   child: Text(
-                    'Добавьте день знакомства, дни рождения и годовщины — «Вечер» напомнит заранее и подскажет идеи.',
+                    'Добавь день знакомства, дни рождения и годовщины — «Вечер» напомнит заранее и подскажет идеи.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: VColors.soft, height: 1.4),
                   ),

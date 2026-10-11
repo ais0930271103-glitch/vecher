@@ -3,6 +3,7 @@ import os
 
 os.environ["VECHER_DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["VECHER_ENV"] = "dev"
+os.environ["VECHER_OTP_RESEND_SECONDS"] = "0"  # в тестах коды запрашиваются подряд
 os.environ["VECHER_JWT_SECRET"] = "test-secret-0123456789abcdef0123456789abcdef"
 
 import pytest  # noqa: E402

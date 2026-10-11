@@ -82,7 +82,7 @@ class _MatchTile extends ConsumerWidget {
     final status = scheduled != null
         ? 'Запланировано: ${formatWhen(scheduled)}'
         : m['plan_open'] == true
-            ? 'План открыт — выберите вариант'
+            ? 'План открыт — выбери вариант'
             : 'Открыть план вечера →';
     return GestureDetector(
       onTap: () async {

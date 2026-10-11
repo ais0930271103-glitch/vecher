@@ -22,7 +22,7 @@ class _EmailScreenState extends ConsumerState<EmailScreen> {
   Future<void> _send() async {
     final email = _email.text.trim();
     if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(email)) {
-      setState(() => _error = 'Проверьте e-mail');
+      setState(() => _error = 'Проверь e-mail');
       return;
     }
     setState(() {
