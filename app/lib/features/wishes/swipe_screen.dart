@@ -196,7 +196,7 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
                   child: LinearProgressIndicator(
                     value: progress,
                     minHeight: 4,
-                    backgroundColor: const Color(0xFF262A55),
+                    backgroundColor: const Color(0xFF2A2938),
                     color: VColors.gold,
                   ),
                 ),
@@ -237,11 +237,11 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
       // Колода «стопкой» позади, как в макете.
       Positioned(
         left: 22, right: 22, top: 0, bottom: 30,
-        child: Transform.rotate(angle: 0.07, child: _backCard(const Color(0xFF1E1F48))),
+        child: Transform.rotate(angle: 0.07, child: _backCard(const Color(0xFF1F1E2E))),
       ),
       Positioned(
         left: 12, right: 12, top: 6, bottom: 22,
-        child: Transform.rotate(angle: -0.05, child: _backCard(const Color(0xFF24245A))),
+        child: Transform.rotate(angle: -0.05, child: _backCard(const Color(0xFF26243A))),
       ),
       Positioned.fill(
         top: 12,
@@ -298,7 +298,7 @@ class _CardFace extends StatelessWidget {
         gradient: const RadialGradient(
           center: Alignment(-0.4, -1),
           radius: 1.3,
-          colors: [Color(0xFF3B2F6A), Color(0xFF1D1E47)],
+          colors: [Color(0xFF33293F), Color(0xFF1D1C2C)],
           stops: [0, 0.65],
         ),
         border: Border.all(color: d == null ? const Color(0x47F3C98B) : d.$2.withOpacity(0.4 + 0.6 * d.$3)),
@@ -379,7 +379,7 @@ class _Buttons extends StatelessWidget {
       const SizedBox(width: 22),
       _RoundButton(
         label: 'Может быть',
-        fill: const Color(0xFF241F48),
+        fill: const Color(0xFF262236),
         border: const Color(0x80B9A3F0),
         onTap: () => onPress('maybe'),
         child: const Icon(Icons.waves, color: Color(0xFFCDBDF7), size: 26),
@@ -465,7 +465,7 @@ class _MatchScreen extends StatelessWidget {
           gradient: RadialGradient(
             center: Alignment(0, -0.76),
             radius: 1.0,
-            colors: [Color(0xFF3A2E6A), Color(0xFF15173E), VColors.bgDeep],
+            colors: [Color(0xFF35294A), Color(0xFF17161F), VColors.bgDeep],
             stops: [0, 0.55, 1],
           ),
         ),
@@ -485,7 +485,7 @@ class _MatchScreen extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
                 decoration: BoxDecoration(
-                  color: const Color(0xD9171A3B),
+                  color: const Color(0xD91C1B2B),
                   borderRadius: BorderRadius.circular(22),
                   border: Border.all(color: const Color(0x4DF3C98B)),
                 ),
@@ -511,7 +511,7 @@ class _MatchScreen extends StatelessWidget {
                       width: 24,
                       height: 24,
                       alignment: Alignment.center,
-                      decoration: const BoxDecoration(color: Color(0xFF2A2350), shape: BoxShape.circle),
+                      decoration: const BoxDecoration(color: Color(0xFF2C2440), shape: BoxShape.circle),
                       child: Text('${i + 1}',
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: VColors.gold)),
                     ),

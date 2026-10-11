@@ -268,7 +268,7 @@ class _OptionCard extends StatelessWidget {
             ? const LinearGradient(
                 begin: Alignment(-0.6, -1),
                 end: Alignment(0.6, 1),
-                colors: [Color(0xFF2E2752), Color(0xFF1A1C42)],
+                colors: [Color(0xFF2D2639), Color(0xFF1B1A2A)],
                 stops: [0, 0.8],
               )
             : null,
@@ -454,7 +454,7 @@ class _Paywall extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF2A2458), Color(0xFF1A1C42)],
+          colors: [Color(0xFF2A2438), Color(0xFF1B1A2A)],
         ),
         border: Border.all(color: const Color(0x66F3C98B)),
       ),

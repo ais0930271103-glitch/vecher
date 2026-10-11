@@ -110,8 +110,8 @@ class NightBackground extends StatelessWidget {
           center: center,
           radius: 1.15,
           colors: strong
-              ? const [Color(0xFF262A5C), Color(0xFF12143A), VColors.bgDeep]
-              : const [Color(0xFF33295F), VColors.bg, VColors.bg],
+              ? const [Color(0xFF2C2840), Color(0xFF16151F), VColors.bgDeep]
+              : const [Color(0xFF2E2740), VColors.bg, VColors.bg],
           stops: const [0, 0.45, 1],
         ),
       ),
@@ -156,7 +156,7 @@ class Initial extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: me ? const Color(0xFF2E2A63) : VColors.avatar,
+        color: me ? const Color(0xFF2F2A45) : VColors.avatar,
         border: Border.all(color: me ? VColors.gold : VColors.lavender, width: 1.5),
       ),
       child: letter.isEmpty

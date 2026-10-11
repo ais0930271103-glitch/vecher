@@ -126,7 +126,7 @@ class _StreakChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: const Color(0xFF241F3F),
+          color: const Color(0xFF26202F),
           border: Border.all(color: const Color(0x4DF3C98B)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -301,7 +301,7 @@ class _Lock extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0x8C0E1029),
+        color: const Color(0x8C121220),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(children: [
@@ -324,7 +324,7 @@ class _AnswerBubble extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: accent ? const Color(0x249B7FE0) : const Color(0x8C0E1029),
+        color: accent ? const Color(0x249B7FE0) : const Color(0x8C121220),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -504,7 +504,7 @@ class _InfoChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          color: const Color(0xFF1B1E44),
+          color: const Color(0xFF212031),
           border: Border.all(color: gold ? const Color(0x80F3C98B) : const Color(0x1FFFFFFF)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -526,7 +526,7 @@ class _RadarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: busy ? const Color(0xFF2A2350) : VColors.chip,
+      color: busy ? const Color(0xFF2C2440) : VColors.chip,
       shape: StadiumBorder(
         side: BorderSide(color: busy ? const Color(0x809B7FE0) : const Color(0x1FFFFFFF)),
       ),

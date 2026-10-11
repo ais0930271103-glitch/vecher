@@ -3,13 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 /// Цвета из макетов «Вечера».
 class VColors {
-  static const bg = Color(0xFF0E1029);
-  static const bgDeep = Color(0xFF0B0C24);
-  static const card = Color(0xFF171A3B);
-  static const card2 = Color(0xFF1D2048);
+  static const bg = Color(0xFF121220);
+  static const bgDeep = Color(0xFF0D0D18);
+  static const card = Color(0xFF1C1B2B);
+  static const card2 = Color(0xFF232233);
   static const text = Color(0xFFF4EEE6);
-  static const muted = Color(0xFFA9A6C4);
-  static const soft = Color(0xFFD6D1EA);
+  static const muted = Color(0xFFA9A5B5);
+  static const soft = Color(0xFFD8D2DE);
   static const gold = Color(0xFFF3C98B);
   static const gold2 = Color(0xFFE3A55E);
   static const goldText = Color(0xFFF6DDB4);
@@ -17,11 +17,11 @@ class VColors {
   static const ink = Color(0xFF1A1433); // текст на золотой кнопке
 
   // Из утверждённых макетов «Вечер — ключевые экраны».
-  static const nav = Color(0xFF0B0D22);
-  static const navInactive = Color(0xFF8E8AAE);
-  static const chip = Color(0xFF1B1E44);
-  static const text2 = Color(0xFFB7B3D3); // вторичный текст в карточках
-  static const link = Color(0xFFCFC9E6); // второстепенные кнопки-ссылки
+  static const nav = Color(0xFF0E0E19);
+  static const navInactive = Color(0xFF8F8A9E);
+  static const chip = Color(0xFF212031);
+  static const text2 = Color(0xFFB8B3C4); // вторичный текст в карточках
+  static const link = Color(0xFFD0CAD9); // второстепенные кнопки-ссылки
   static const lavenderText = Color(0xFFE4DAFF);
   static const avatar = Color(0xFF3A2E5E);
   static const segment = Color(0xFF33294A); // выбранная вкладка-переключатель
@@ -36,7 +36,7 @@ class VColors {
   static const cardGradient = LinearGradient(
     begin: Alignment(-0.6, -1),
     end: Alignment(0.6, 1),
-    colors: [Color(0xFF2A2458), Color(0xFF1A1C42)],
+    colors: [Color(0xFF2A2438), Color(0xFF1B1A2A)],
     stops: [0, 0.6],
   );
 }
@@ -64,7 +64,7 @@ ThemeData buildTheme() {
       surfaceContainerLow: VColors.bg,
       surfaceContainer: VColors.card,
       surfaceContainerHigh: VColors.card2,
-      surfaceContainerHighest: Color(0xFF262A55),
+      surfaceContainerHighest: Color(0xFF2A2938),
       outline: Color(0x33FFFFFF),
       outlineVariant: Color(0x1FFFFFFF),
       secondaryContainer: VColors.segment,
@@ -80,7 +80,7 @@ ThemeData buildTheme() {
     appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: const Color(0xFF12143A),
+      fillColor: const Color(0xFF16151F),
       labelStyle: const TextStyle(color: VColors.muted),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),

@@ -229,7 +229,7 @@ class _PartnerMemoScreenState extends ConsumerState<PartnerMemoScreen> {
       _Box(
         label: 'Заметил(а) и запомнил(а) — видите только вы',
         trailing: Material(
-          color: const Color(0xFF262A55),
+          color: const Color(0xFF2A2938),
           borderRadius: BorderRadius.circular(16),
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
