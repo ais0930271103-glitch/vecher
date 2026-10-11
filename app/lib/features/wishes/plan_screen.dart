@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../chat/chat_screen.dart';
+import 'places_screen.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
@@ -206,6 +207,11 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
           onToggle: () => setState(() => _expanded = o['index'] as int),
           onVote: () => _call((dio) => dio.post('/plans/${widget.cardId}/vote', data: {'option': o['index']})),
         ),
+      if (p['places_available'] == true) ...[
+        const SizedBox(height: 8),
+        PlacesTile(cardId: widget.cardId, planTitle: p['text'] as String),
+        const SizedBox(height: 14),
+      ],
       const SizedBox(height: 8),
       _ScheduleCard(
         scheduled: scheduled,

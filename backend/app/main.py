@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import create_all
-from .routers import auth, chat, city, invites, pairs, plans, push, settings as settings_router, solo, today, us, wishes
+from .routers import auth, chat, city, places, invites, pairs, plans, push, settings as settings_router, solo, today, us, wishes
 from .scheduler import run_forever
 
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +44,7 @@ app.include_router(pairs.router)
 app.include_router(today.router)
 app.include_router(wishes.router)
 app.include_router(plans.router)
+app.include_router(places.router)
 app.include_router(us.router)
 app.include_router(solo.router)
 app.include_router(push.router)

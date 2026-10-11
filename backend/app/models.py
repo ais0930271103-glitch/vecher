@@ -441,3 +441,37 @@ class ChatRead(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- Места и события («Выбрать конкретное») ----------
+
+class Place(Base):
+    """Место или событие для плана. Источник — app/content/places.py (позже Directus и API касс)."""
+
+    __tablename__ = "places"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    city: Mapped[str] = mapped_column(String(60), default="*", index=True)  # "*" — показывать везде (примеры)
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(500), default="")
+    address: Mapped[str | None] = mapped_column(String(200))
+    price: Mapped[int] = mapped_column(Integer, default=2)
+    url: Mapped[str | None] = mapped_column(String(300))
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    demo: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PlaceVote(Base):
+    """«Мне нравится» место для плана. Совпало у обоих — место выбрано."""
+
+    __tablename__ = "place_votes"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", "card_id", "place_id", name="uq_place_vote"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
+    place_id: Mapped[int] = mapped_column(ForeignKey("places.id", ondelete="CASCADE"))

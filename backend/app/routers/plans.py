@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..content.plans import plan_for
+from ..content.places import CARD_KINDS
 from ..content.wishes import DECKS
 from ..db import get_session
 from ..deps import PairContext, active_pair, special_pair
@@ -99,6 +100,7 @@ class PlanOut(BaseModel):
     my_vote: int | None = None
     partner_vote: int | None = None
     chosen: int | None = None  # вариант, за который проголосовали оба
+    places_available: bool = False  # есть «Выбрать конкретное» (рестораны, концерты…)
     scheduled_at: datetime | None = None
 
 
@@ -159,6 +161,7 @@ async def _plan_out(session: AsyncSession, ctx: PairContext, card_id: int) -> Pl
     return PlanOut(
         card_id=card.id, text=card.text, deck_title=DECKS.get(card.deck, {}).get("title", card.deck),
         kind=kind, intro=plan["intro"], locked=locked, premium=premium,
+        places_available=card.text in CARD_KINDS,
         free_plans_left=await free_plans_left(session, ctx.pair.id),
         options=options, my_vote=mine, partner_vote=theirs,
         chosen=mine if mine is not None and mine == theirs else None,
