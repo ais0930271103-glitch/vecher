@@ -33,6 +33,11 @@ class FcmSender:
         from google.oauth2 import service_account  # импорт только при наличии ключа
 
         info = json.loads(key_path.read_text(encoding="utf-8"))
+        if info.get("type") != "service_account":
+            raise ValueError(
+                "это не ключ сервисного аккаунта"
+                + (" (похоже на google-services.json приложения)" if "project_info" in info else "")
+                + ". Нужен файл из Firebase → Настройки проекта → Сервисные аккаунты → «Создать новый закрытый ключ»")
         self.project_id = info["project_id"]
         self.creds = service_account.Credentials.from_service_account_info(info, scopes=[self.SCOPE])
 
