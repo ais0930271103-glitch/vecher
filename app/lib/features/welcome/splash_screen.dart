@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
-import 'moon.dart';
+import '../../core/ui.dart';
 
 /// Короткий сплэш (меньше секунды): решаем, куда вести — ко входу или в «Сегодня».
 class SplashScreen extends ConsumerStatefulWidget {
@@ -41,12 +41,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const MoonMark(size: 140),
-          const SizedBox(height: 16),
-          Text('Вечер', style: display(48)),
-        ]),
+      body: NightBackground(
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Emblem(size: 180),
+            const SizedBox(height: 16),
+            Text('Вечер', style: display(48)),
+          ]),
+        ),
       ),
     );
   }

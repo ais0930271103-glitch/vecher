@@ -53,3 +53,21 @@ String daysLeftText(int days) {
 
 /// Дата без времени для API: 2026-10-20.
 String isoDate(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+
+const _weekdaysFull = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+const _monthsGen = [
+  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+];
+
+/// «Суббота, 10 октября».
+String formatLongDate(DateTime d) => '${_weekdaysFull[d.weekday - 1]}, ${d.day} ${_monthsGen[d.month - 1]}';
+
+/// Приветствие по времени суток.
+String greeting([DateTime? now]) {
+  final h = (now ?? DateTime.now()).hour;
+  if (h >= 5 && h < 12) return 'Доброе утро';
+  if (h >= 12 && h < 17) return 'Добрый день';
+  if (h >= 17 && h < 23) return 'Добрый вечер';
+  return 'Доброй ночи';
+}

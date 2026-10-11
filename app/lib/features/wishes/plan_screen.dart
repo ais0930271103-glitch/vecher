@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 
 /// План к совпадению: GET /plans/{id}.
 final planProvider = FutureProvider.autoDispose.family<Map<String, dynamic>, int>((ref, id) async {
@@ -28,10 +29,21 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
   Timer? _poll;
   bool _busy = false;
   int? _expanded;
+  String? _myName, _partnerName;
 
   @override
   void initState() {
     super.initState();
+    // Имена — для кружков с буквами у голосов, как в макете.
+    ref.read(dioProvider).get('/pairs/me').then((r) {
+      final d = r.data as Map?;
+      if (mounted && d != null) {
+        setState(() {
+          _myName = d['my_name'] as String?;
+          _partnerName = d['partner_name'] as String?;
+        });
+      }
+    }).catchError((_) {});
     // Голос партнёра подтягиваем раз в 15 секунд (до Centrifugo).
     _poll = Timer.periodic(const Duration(seconds: 15), (_) => ref.invalidate(planProvider(widget.cardId)));
   }
@@ -79,7 +91,6 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
   Widget build(BuildContext context) {
     final plan = ref.watch(planProvider(widget.cardId));
     return Scaffold(
-      appBar: AppBar(title: Text('План вечера', style: display(22))),
       body: SafeArea(
         child: plan.when(
           skipLoadingOnRefresh: true,
@@ -90,7 +101,9 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
               child: Text(errorText(e), style: const TextStyle(color: Color(0xFFF5A894))),
             ),
           ),
-          data: (p) => ListView(padding: const EdgeInsets.all(20), children: [
+          data: (p) => ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), children: [
+            const TopBar(title: 'План вечера'),
+            const SizedBox(height: 16),
             _Header(p: p),
             const SizedBox(height: 18),
             if (p['locked'] == true)
@@ -132,7 +145,7 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
         ),
       const SizedBox(height: 10),
       if (freeLeft > 0) ...[
-        FilledButton(
+        GoldButton(
           onPressed: _busy ? null : () => _call((dio) => dio.post('/plans/${widget.cardId}/open')),
           child: const Text('Открыть план — бесплатно'),
         ),
@@ -179,6 +192,8 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
           mine: mine == o['index'],
           theirs: theirs == o['index'],
           chosen: chosen == o['index'],
+          myName: _myName,
+          partnerName: _partnerName,
           busy: _busy,
           onToggle: () => setState(() => _expanded = o['index'] as int),
           onVote: () => _call((dio) => dio.post('/plans/${widget.cardId}/vote', data: {'option': o['index']})),
@@ -205,11 +220,7 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF3A2C5E), Color(0xFF1F1D48)],
-        ),
+        gradient: VColors.cardGradient,
         border: Border.all(color: const Color(0x4DF3C98B)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -234,9 +245,12 @@ class _OptionCard extends StatelessWidget {
     required this.busy,
     required this.onToggle,
     required this.onVote,
+    this.myName,
+    this.partnerName,
   });
   final Map<String, dynamic> o;
   final bool expanded, mine, theirs, chosen, busy;
+  final String? myName, partnerName;
   final VoidCallback onToggle, onVote;
 
   @override
@@ -249,7 +263,15 @@ class _OptionCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: chosen ? const Color(0xFF2A2458) : VColors.card,
+        color: chosen ? null : VColors.card,
+        gradient: chosen
+            ? const LinearGradient(
+                begin: Alignment(-0.6, -1),
+                end: Alignment(0.6, 1),
+                colors: [Color(0xFF2E2752), Color(0xFF1A1C42)],
+                stops: [0, 0.8],
+              )
+            : null,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: chosen ? VColors.gold : (mine ? const Color(0x80F3C98B) : const Color(0x14FFFFFF)),
@@ -271,16 +293,26 @@ class _OptionCard extends StatelessWidget {
                     Text(note, style: const TextStyle(color: VColors.muted, fontSize: 13)),
                   ],
                   if (mine || theirs) ...[
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 6, children: [
-                      if (chosen) const _Tag('Выбрано вдвоём', gold: true),
-                      if (!chosen && mine) const _Tag('Ваш выбор'),
-                      if (!chosen && theirs) const _Tag('Выбор партнёра'),
+                    const SizedBox(height: 10),
+                    Row(children: [
+                      if (mine) Initial(name: myName, size: 28, me: true),
+                      if (mine && theirs) const SizedBox(width: 6),
+                      if (theirs) Initial(name: partnerName, size: 28),
                     ]),
                   ],
                 ]),
               ),
-              Icon(expanded ? Icons.expand_less : Icons.expand_more, color: VColors.muted),
+              if (chosen)
+                Container(
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: VColors.gold, borderRadius: BorderRadius.circular(13)),
+                  child: const Text('Совпало',
+                      style: TextStyle(color: VColors.ink, fontSize: 12, fontWeight: FontWeight.w700)),
+                )
+              else
+                Icon(expanded ? Icons.expand_less : Icons.expand_more, color: VColors.muted),
             ]),
           ),
         ),
@@ -343,32 +375,13 @@ class _OptionCard extends StatelessWidget {
                 ? const Center(
                     child: Text('Этот вариант выбрали вы оба', style: TextStyle(color: VColors.gold)),
                   )
-                : FilledButton(
+                : GoldButton(
                     onPressed: busy || mine ? null : onVote,
                     child: Text(mine ? 'Вы выбрали этот вариант' : 'Выбрать этот вариант'),
                   ),
           ),
         ],
       ]),
-    );
-  }
-}
-
-class _Tag extends StatelessWidget {
-  const _Tag(this.text, {this.gold = false});
-  final String text;
-  final bool gold;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: gold ? VColors.gold : const Color(0x339B7FE0),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(text,
-          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: gold ? VColors.ink : VColors.lavender)),
     );
   }
 }
@@ -465,7 +478,7 @@ class _Paywall extends StatelessWidget {
             ]),
           ),
         const SizedBox(height: 16),
-        const FilledButton(onPressed: null, child: Text('Оформить — скоро')),
+        const GoldButton(onPressed: null, child: Text('Оформить — скоро')),
         if (kDebugMode) ...[
           const SizedBox(height: 8),
           TextButton(

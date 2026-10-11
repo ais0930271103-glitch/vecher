@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 import '../us/us_screen.dart';
 import 'paired_today.dart';
 
@@ -20,8 +21,10 @@ class TodayScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pair = ref.watch(pairProvider);
+    final paired = pair.valueOrNull?['status'] == 'active';
     return Scaffold(
-      appBar: AppBar(
+      // В паре — без шапки, как в макете (приветствие и дата сверху; «Выйти» — в разделе «Пара»).
+      appBar: paired ? null : AppBar(
         title: Text('Вечер', style: display(24)),
         actions: [
           IconButton(
@@ -43,7 +46,7 @@ class TodayScreen extends ConsumerWidget {
             ref.invalidate(datesProvider);
             await ref.refresh(pairProvider.future);
           },
-          child: ListView(padding: const EdgeInsets.all(20), children: [
+          child: ListView(padding: EdgeInsets.fromLTRB(20, paired ? 24 : 20, 20, 20), children: [
             pair.when(
               loading: () => const Padding(
                 padding: EdgeInsets.only(top: 80),
@@ -55,7 +58,7 @@ class TodayScreen extends ConsumerWidget {
               data: (p) {
                 if (p == null) return const _NoPair();
                 if (p['status'] == 'pending') return _Waiting(code: p['invite_code'] as String?);
-                return const PairedToday();
+                return PairedToday(partnerName: p['partner_name'] as String?);
               },
             ),
           ]),
@@ -142,7 +145,7 @@ class _NoPairState extends ConsumerState<_NoPair> {
           const Text('Получите код и отправьте его любым мессенджером.',
               style: TextStyle(color: VColors.soft)),
           const SizedBox(height: 14),
-          FilledButton(
+          GoldButton(
             onPressed: _busy ? null : () => _run(() => dio.post('/pairs/invite')),
             child: const Text('Получить код'),
           ),

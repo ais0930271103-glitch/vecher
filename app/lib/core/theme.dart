@@ -15,6 +15,30 @@ class VColors {
   static const goldText = Color(0xFFF6DDB4);
   static const lavender = Color(0xFFB9A3F0);
   static const ink = Color(0xFF1A1433); // текст на золотой кнопке
+
+  // Из утверждённых макетов «Вечер — ключевые экраны».
+  static const nav = Color(0xFF0B0D22);
+  static const navInactive = Color(0xFF8E8AAE);
+  static const chip = Color(0xFF1B1E44);
+  static const text2 = Color(0xFFB7B3D3); // вторичный текст в карточках
+  static const link = Color(0xFFCFC9E6); // второстепенные кнопки-ссылки
+  static const lavenderText = Color(0xFFE4DAFF);
+  static const avatar = Color(0xFF3A2E5E);
+  static const segment = Color(0xFF33294A); // выбранная вкладка-переключатель
+  static const coral = Color(0xFFF5A894);
+  static const label = Color(0xFFE2B57C); // подписи КАПСОМ
+
+  static const goldGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFFF6D29A), Color(0xFFE3A55E)],
+  );
+  static const cardGradient = LinearGradient(
+    begin: Alignment(-0.6, -1),
+    end: Alignment(0.6, 1),
+    colors: [Color(0xFF2A2458), Color(0xFF1A1C42)],
+    stops: [0, 0.6],
+  );
 }
 
 TextStyle display(double size, {Color color = VColors.goldText}) =>
@@ -32,9 +56,26 @@ ThemeData buildTheme() {
       primary: VColors.gold,
       onPrimary: VColors.ink,
       secondary: VColors.lavender,
+      onSecondary: VColors.ink,
       surface: VColors.card,
       onSurface: VColors.text,
+      onSurfaceVariant: VColors.muted,
+      surfaceContainerLowest: VColors.bgDeep,
+      surfaceContainerLow: VColors.bg,
+      surfaceContainer: VColors.card,
+      surfaceContainerHigh: VColors.card2,
+      surfaceContainerHighest: Color(0xFF262A55),
+      outline: Color(0x33FFFFFF),
+      outlineVariant: Color(0x1FFFFFFF),
+      secondaryContainer: VColors.segment,
+      onSecondaryContainer: VColors.goldText,
     ),
+    snackBarTheme: const SnackBarThemeData(
+      backgroundColor: VColors.card2,
+      contentTextStyle: TextStyle(color: VColors.text),
+      behavior: SnackBarBehavior.floating,
+    ),
+    dialogTheme: const DialogThemeData(backgroundColor: VColors.card),
     textTheme: text,
     appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
     inputDecorationTheme: InputDecorationTheme(

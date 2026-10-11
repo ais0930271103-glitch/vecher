@@ -40,7 +40,19 @@ class UsScreen extends ConsumerWidget {
     final reminders = ref.watch(remindersProvider).valueOrNull ?? const [];
 
     return Scaffold(
-      appBar: AppBar(title: Text('Мы', style: display(24))),
+      appBar: AppBar(
+        title: Text('Пара', style: display(24)),
+        actions: [
+          IconButton(
+            tooltip: 'Выйти',
+            icon: const Icon(Icons.logout, color: VColors.muted),
+            onPressed: () async {
+              await clearToken();
+              if (context.mounted) context.go('/welcome');
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
@@ -69,7 +81,7 @@ class UsScreen extends ConsumerWidget {
                 const SizedBox(height: 16),
                 _Tile(
                   icon: Icons.favorite_outline,
-                  title: 'Памятка: ${(p['partner_name'] as String?) ?? 'партнёр'}',
+                  title: 'Мой человек${p['partner_name'] == null ? '' : ': ${p['partner_name']}'}',
                   subtitle: filled == 0
                       ? '${_cap(partnerName)} пока ничего о себе не рассказал(а)'
                       : 'Размеры, любимое, мечты — $filled ${plural(filled, 'пункт', 'пункта', 'пунктов')}',
@@ -124,11 +136,7 @@ class _TogetherCard extends StatelessWidget {
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF3A2C5E), Color(0xFF1F1D48)],
-        ),
+        gradient: VColors.cardGradient,
         border: Border.all(color: const Color(0x4DF3C98B)),
       ),
       child: days == null

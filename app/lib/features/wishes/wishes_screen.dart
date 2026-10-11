@@ -25,7 +25,7 @@ class WishesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final decks = ref.watch(decksProvider);
     return Scaffold(
-      appBar: AppBar(title: Text('Желания', style: display(24))),
+      appBar: AppBar(title: Text('Вместе', style: display(24))),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () => ref.refresh(decksProvider.future),
@@ -80,11 +80,7 @@ class _MatchesTile extends ConsumerWidget {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF3A2C5E), Color(0xFF1F1D48)],
-            ),
+            gradient: VColors.cardGradient,
             border: Border.all(color: const Color(0x4DF3C98B)),
           ),
           child: Row(children: [

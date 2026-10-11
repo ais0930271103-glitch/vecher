@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 
 /// Свайпер колоды: вправо — «да», влево — «нет», вверх — «может быть».
 class SwipeScreen extends ConsumerStatefulWidget {
@@ -23,6 +24,9 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
   final List<Map<String, dynamic>> _cards = [];
   bool _loading = true;
   String? _error;
+  int _total = 0; // карточек в колоде
+  int _done = 0; // из них пролистано
+  String? _partner; // имя партнёра для подсказки
 
   Offset _drag = Offset.zero;
   late final AnimationController _anim;
@@ -54,13 +58,30 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
       _error = null;
     });
     try {
-      final r = await ref.read(dioProvider).get('/wishes/decks/${widget.deckId}/next');
+      final dio = ref.read(dioProvider);
+      final r = await dio.get('/wishes/decks/${widget.deckId}/next');
       final list = (r.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      // Прогресс колоды и имя партнёра — для шапки и подсказки, как в макете.
+      final decks = await dio.get('/wishes/decks');
+      final deck = ((decks.data as Map)['decks'] as List)
+          .cast<Map>()
+          .where((d) => d['id'] == widget.deckId)
+          .firstOrNull;
+      if (_partner == null) {
+        try {
+          final pair = await dio.get('/pairs/me');
+          _partner = (pair.data as Map?)?['partner_name'] as String?;
+        } catch (_) {}
+      }
       if (!mounted) return;
       setState(() {
         _cards
           ..clear()
           ..addAll(list);
+        if (deck != null) {
+          _total = deck['total'] as int;
+          _done = deck['done'] as int;
+        }
       });
     } catch (e) {
       if (mounted) setState(() => _error = errorText(e));
@@ -113,6 +134,7 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
     final card = _cards.removeAt(0);
     setState(() {
       _drag = Offset.zero;
+      _done = math.min(_done + 1, _total);
       if (_cards.isEmpty) _loading = true; // пока сохраняем и грузим следующую порцию
     });
     _send(card, choice);
@@ -135,41 +157,20 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
       setState(() {
         _cards.insert(0, card); // вернуть карточку, чтобы не потерять выбор
         _loading = false;
+        _done = math.max(_done - 1, 0);
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
     }
   }
 
   Future<void> _showMatch(Map<String, dynamic> m) async {
-    final both = m['kind'] == 'yes';
-    final openPlan = await showDialog<bool>(
+    final openPlan = await showGeneralDialog<bool>(
       context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: VColors.card,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(both ? Icons.favorite : Icons.chat_bubble_outline, color: VColors.gold, size: 44),
-            const SizedBox(height: 14),
-            Text(both ? 'Совпадение!' : 'Можно обсудить', style: display(26)),
-            const SizedBox(height: 10),
-            Text(m['text'] as String,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 18, height: 1.35, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text(both ? 'Вы оба этого хотите' : 'Один хочет, другой — может быть',
-                style: const TextStyle(color: VColors.soft)),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Открыть план вечера'),
-            ),
-            const SizedBox(height: 6),
-            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Листать дальше')),
-          ]),
-        ),
-      ),
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 260),
+      transitionBuilder: (_, a, __, child) => FadeTransition(opacity: a, child: child),
+      pageBuilder: (ctx, _, __) => _MatchScreen(match: m),
     );
     if (openPlan == true && mounted) {
       await context.push('/wishes/plan/${m['card_id']}');
@@ -180,14 +181,33 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
+    final progress = _total == 0 ? 0.0 : _done / _total;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title, style: display(22))),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(children: [
+            TopBar(
+              title: 'Колода «${widget.title}»',
+              below: SizedBox(
+                width: 140,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 4,
+                    backgroundColor: const Color(0xFF262A55),
+                    color: VColors.gold,
+                  ),
+                ),
+              ),
+              trailing: _total == 0
+                  ? null
+                  : Text('$_done/$_total', style: const TextStyle(fontSize: 13, color: VColors.muted)),
+            ),
+            const SizedBox(height: 18),
             Expanded(child: _body()),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             if (_cards.isNotEmpty) _Buttons(onPress: _press),
           ]),
         ),
@@ -200,7 +220,7 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
     if (_error != null && _cards.isEmpty) {
       return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!, style: const TextStyle(color: Color(0xFFF5A894))),
+          Text(_error!, style: const TextStyle(color: VColors.coral)),
           const SizedBox(height: 12),
           TextButton(onPressed: _load, child: const Text('Повторить')),
         ]),
@@ -210,22 +230,44 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
 
     final w = MediaQuery.of(context).size.width;
     final angle = (_drag.dx / w) * 0.35;
-    return Stack(alignment: Alignment.center, children: [
-      if (_cards.length > 1)
-        Transform.scale(scale: 0.94, child: _CardFace(text: _cards[1]['text'] as String, dim: true)),
-      GestureDetector(
-        onPanUpdate: _anim.isAnimating ? null : (d) => setState(() => _drag += d.delta),
-        onPanEnd: _anim.isAnimating ? null : _onPanEnd,
-        child: Transform.translate(
-          offset: _drag,
-          child: Transform.rotate(
-            angle: angle,
-            child: _CardFace(text: _cards[0]['text'] as String, hint: _hint()),
+    final hint = _partner == null
+        ? 'Партнёр увидит это, только если тоже скажет «да»'
+        : '$_partner увидит это, только если тоже скажет «да»';
+    return Stack(children: [
+      // Колода «стопкой» позади, как в макете.
+      Positioned(
+        left: 22, right: 22, top: 0, bottom: 30,
+        child: Transform.rotate(angle: 0.07, child: _backCard(const Color(0xFF1E1F48))),
+      ),
+      Positioned(
+        left: 12, right: 12, top: 6, bottom: 22,
+        child: Transform.rotate(angle: -0.05, child: _backCard(const Color(0xFF24245A))),
+      ),
+      Positioned.fill(
+        top: 12,
+        bottom: 12,
+        child: GestureDetector(
+          onPanUpdate: _anim.isAnimating ? null : (d) => setState(() => _drag += d.delta),
+          onPanEnd: _anim.isAnimating ? null : _onPanEnd,
+          child: Transform.translate(
+            offset: _drag,
+            child: Transform.rotate(
+              angle: angle,
+              child: _CardFace(
+                text: _cards[0]['text'] as String,
+                deckTitle: widget.title,
+                hint: hint,
+                drag: _hint(),
+              ),
+            ),
           ),
         ),
       ),
     ]);
   }
+
+  Widget _backCard(Color c) =>
+      DecoratedBox(decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(28)));
 
   /// Подсказка поверх карточки, пока её тянут.
   (String, Color, double)? _hint() {
@@ -236,66 +278,88 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
     }
     return dx > 0
         ? ('ДА', VColors.gold, math.min(1.0, dx / _threshold))
-        : ('НЕТ', const Color(0xFFF5A894), math.min(1.0, -dx / _threshold));
+        : ('НЕТ', VColors.coral, math.min(1.0, -dx / _threshold));
   }
 }
 
 class _CardFace extends StatelessWidget {
-  const _CardFace({required this.text, this.dim = false, this.hint});
+  const _CardFace({required this.text, required this.deckTitle, required this.hint, this.drag});
   final String text;
-  final bool dim;
-  final (String, Color, double)? hint;
+  final String deckTitle;
+  final String hint;
+  final (String, Color, double)? drag;
 
   @override
   Widget build(BuildContext context) {
-    final h = hint;
-    return AspectRatio(
-      aspectRatio: 3 / 4,
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: dim
-                ? const [Color(0xFF1C1E44), Color(0xFF15173A)]
-                : const [Color(0xFF2E2760), Color(0xFF1A1C42)],
-          ),
-          border: Border.all(color: h == null ? const Color(0x38F3C98B) : h.$2.withOpacity(0.4 + 0.6 * h.$3)),
-          boxShadow: dim ? null : const [BoxShadow(color: Color(0x66000000), blurRadius: 24, offset: Offset(0, 12))],
+    final d = drag;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const RadialGradient(
+          center: Alignment(-0.4, -1),
+          radius: 1.3,
+          colors: [Color(0xFF3B2F6A), Color(0xFF1D1E47)],
+          stops: [0, 0.65],
         ),
-        padding: const EdgeInsets.all(28),
-        child: Stack(children: [
-          Center(
-            child: Text(
-              text,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 26,
-                height: 1.3,
-                fontWeight: FontWeight.w600,
-                color: dim ? VColors.muted : VColors.text,
+        border: Border.all(color: d == null ? const Color(0x47F3C98B) : d.$2.withOpacity(0.4 + 0.6 * d.$3)),
+        boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 24, offset: Offset(0, 12))],
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
+      child: Stack(children: [
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            _Tag(deckTitle, gold: true),
+          ]),
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: Text(text, maxLines: 7, overflow: TextOverflow.fade, style: display(28).copyWith(height: 1.3)),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(children: [
+            const Icon(Icons.visibility_outlined, size: 15, color: VColors.lavender),
+            const SizedBox(width: 8),
+            Expanded(child: Text(hint, style: const TextStyle(fontSize: 12, color: VColors.lavender))),
+          ]),
+        ]),
+        if (d != null)
+          Align(
+            alignment: Alignment.topRight,
+            child: Opacity(
+              opacity: d.$3,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: d.$2, width: 2),
+                ),
+                child: Text(d.$1,
+                    style: TextStyle(color: d.$2, fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: 2)),
               ),
             ),
           ),
-          if (h != null)
-            Align(
-              alignment: Alignment.topCenter,
-              child: Opacity(
-                opacity: h.$3,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: h.$2, width: 2),
-                  ),
-                  child: Text(h.$1,
-                      style: TextStyle(color: h.$2, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: 2)),
-                ),
-              ),
-            ),
-        ]),
+      ]),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  const _Tag(this.text, {this.gold = false});
+  final String text;
+  final bool gold;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: gold ? const Color(0x24F3C98B) : const Color(0x24B9A3F0),
       ),
+      child: Text(text, style: TextStyle(fontSize: 12, color: gold ? VColors.gold : const Color(0xFFCDBDF7))),
     );
   }
 }
@@ -306,45 +370,173 @@ class _Buttons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-      _RoundButton(icon: Icons.close, color: const Color(0xFFF5A894), label: 'Нет', onTap: () => onPress('no')),
+    return Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
       _RoundButton(
-          icon: Icons.help_outline, color: VColors.lavender, label: 'Может быть', onTap: () => onPress('maybe')),
-      _RoundButton(icon: Icons.favorite, color: VColors.gold, label: 'Да', big: true, onTap: () => onPress('yes')),
+        label: 'Нет',
+        onTap: () => onPress('no'),
+        child: const Icon(Icons.close, color: VColors.link, size: 26),
+      ),
+      const SizedBox(width: 22),
+      _RoundButton(
+        label: 'Может быть',
+        fill: const Color(0xFF241F48),
+        border: const Color(0x80B9A3F0),
+        onTap: () => onPress('maybe'),
+        child: const Icon(Icons.waves, color: Color(0xFFCDBDF7), size: 26),
+      ),
+      const SizedBox(width: 22),
+      _RoundButton(
+        label: 'Да',
+        big: true,
+        onTap: () => onPress('yes'),
+        child: const Icon(Icons.favorite_border, color: VColors.ink, size: 30),
+      ),
     ]);
   }
 }
 
 class _RoundButton extends StatelessWidget {
   const _RoundButton({
-    required this.icon,
-    required this.color,
     required this.label,
     required this.onTap,
+    required this.child,
     this.big = false,
+    this.fill = VColors.card,
+    this.border = const Color(0x24FFFFFF),
   });
-  final IconData icon;
-  final Color color;
   final String label;
   final VoidCallback onTap;
+  final Widget child;
   final bool big;
+  final Color fill;
+  final Color border;
 
   @override
   Widget build(BuildContext context) {
-    final size = big ? 72.0 : 60.0;
+    final size = big ? 76.0 : 64.0;
     return Column(mainAxisSize: MainAxisSize.min, children: [
-      Material(
-        color: VColors.card,
-        shape: CircleBorder(side: BorderSide(color: color.withOpacity(0.6), width: 1.5)),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: SizedBox(width: size, height: size, child: Icon(icon, color: color, size: big ? 34 : 28)),
+      Semantics(
+        button: true,
+        label: label,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: big ? null : fill,
+            gradient: big ? VColors.goldGradient : null,
+            border: big ? null : Border.all(color: border),
+            boxShadow: big ? const [BoxShadow(color: Color(0x59F3B46E), blurRadius: 30)] : null,
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(customBorder: const CircleBorder(), onTap: onTap, child: Center(child: child)),
+          ),
         ),
       ),
       const SizedBox(height: 6),
-      Text(label, style: const TextStyle(fontSize: 12, color: VColors.muted)),
+      Text(label,
+          style: TextStyle(
+            fontSize: 12,
+            color: big ? VColors.gold : VColors.muted,
+            fontWeight: big ? FontWeight.w600 : FontWeight.w400,
+          )),
     ]);
+  }
+}
+
+/// Полноэкранное «Совпадение» по макету: эмблема, свечение, карточка и шаги.
+class _MatchScreen extends StatelessWidget {
+  const _MatchScreen({required this.match});
+  final Map<String, dynamic> match;
+
+  @override
+  Widget build(BuildContext context) {
+    final both = match['kind'] == 'yes';
+    const steps = [
+      'Откройте план вечера — там варианты, продукты и шаги',
+      'Выберите вариант вдвоём: как только совпадёт — план готов',
+      'Назначьте день — план появится на «Сегодня» у обоих',
+    ];
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(0, -0.76),
+            radius: 1.0,
+            colors: [Color(0xFF3A2E6A), Color(0xFF15173E), VColors.bgDeep],
+            stops: [0, 0.55, 1],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+            child: Column(children: [
+              const Emblem(size: 130),
+              const SizedBox(height: 16),
+              Text(both ? 'СОВПАДЕНИЕ' : 'МОЖНО ОБСУДИТЬ',
+                  style: const TextStyle(fontSize: 12, letterSpacing: 3, color: VColors.label)),
+              const SizedBox(height: 10),
+              Text(both ? 'Вы оба этого хотите' : 'Один хочет, другой — может быть',
+                  textAlign: TextAlign.center, style: display(30).copyWith(height: 1.25)),
+              const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+                decoration: BoxDecoration(
+                  color: const Color(0xD9171A3B),
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0x4DF3C98B)),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text((match['deck_title'] as String?) ?? '',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFFCDBDF7))),
+                  const SizedBox(height: 6),
+                  Text(match['text'] as String,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, height: 1.35)),
+                ]),
+              ),
+              const SizedBox(height: 18),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Как начать', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(height: 10),
+              for (var i = 0; i < steps.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(color: Color(0xFF2A2350), shape: BoxShape.circle),
+                      child: Text('${i + 1}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: VColors.gold)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(steps[i], style: const TextStyle(fontSize: 14, height: 1.45, color: VColors.soft)),
+                    ),
+                  ]),
+                ),
+              const Spacer(),
+              GoldButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Открыть план вечера'),
+              ),
+              const SizedBox(height: 6),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: VColors.link),
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Листать дальше', style: TextStyle(fontSize: 15)),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -362,7 +554,7 @@ class _DeckDone extends StatelessWidget {
         const Text('Когда партнёр тоже её пролистает, совпадения появятся сами.',
             textAlign: TextAlign.center, style: TextStyle(color: VColors.soft)),
         const SizedBox(height: 20),
-        FilledButton(
+        GoldButton(
           onPressed: () => context.pushReplacement('/wishes/matches'),
           child: const Text('Смотреть совпадения'),
         ),

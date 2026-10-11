@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 
 /// Имя при регистрации — партнёр будет видеть его в приложении.
 class NameScreen extends ConsumerStatefulWidget {
@@ -50,7 +51,7 @@ class _NameScreenState extends ConsumerState<NameScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text('Как вас зовут?', style: display(32)),
             const SizedBox(height: 8),
-            const Text('Так вас будет видеть партнёр. Изменить можно потом в разделе «Мы».',
+            const Text('Так вас будет видеть партнёр. Изменить можно потом в разделе «Пара».',
                 style: TextStyle(color: VColors.soft, fontSize: 16)),
             const SizedBox(height: 24),
             TextField(
@@ -68,7 +69,7 @@ class _NameScreenState extends ConsumerState<NameScreen> {
               Text(_error!, style: const TextStyle(color: Color(0xFFF5A894))),
             ],
             const Spacer(),
-            FilledButton(
+            GoldButton(
               onPressed: _busy || _name.text.trim().isEmpty ? null : _save,
               child: Text(_busy ? 'Сохраняем…' : 'Продолжить'),
             ),

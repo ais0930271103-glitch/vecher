@@ -24,6 +24,8 @@ class PairOut(BaseModel):
     status: str
     invite_code: str | None
     partner_id: str | None
+    my_name: str | None = None
+    partner_name: str | None = None
 
 
 class JoinIn(BaseModel):
@@ -40,7 +42,11 @@ async def _out(session: AsyncSession, pair: Pair, me: str) -> PairOut:
     partner = (await session.execute(
         select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != me)
     )).scalar_one_or_none()
-    return PairOut(pair_id=pair.id, status=pair.status, invite_code=pair.invite_code, partner_id=partner)
+    me_user = await session.get(User, me)
+    partner_user = await session.get(User, partner) if partner else None
+    return PairOut(pair_id=pair.id, status=pair.status, invite_code=pair.invite_code, partner_id=partner,
+                   my_name=me_user.display_name if me_user else None,
+                   partner_name=partner_user.display_name if partner_user else None)
 
 
 @router.get("/me", response_model=PairOut | None)

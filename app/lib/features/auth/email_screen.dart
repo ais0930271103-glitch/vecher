@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 
 class EmailScreen extends ConsumerStatefulWidget {
   const EmailScreen({super.key});
@@ -82,7 +83,7 @@ class _EmailScreenState extends ConsumerState<EmailScreen> {
               Text(_error!, style: const TextStyle(color: Color(0xFFF5A894))),
             ],
             const Spacer(),
-            FilledButton(
+            GoldButton(
               onPressed: _busy ? null : _send,
               child: Text(_busy ? 'Отправляем…' : 'Получить код'),
             ),

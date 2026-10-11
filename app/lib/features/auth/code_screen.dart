@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 
 class CodeScreen extends ConsumerStatefulWidget {
   const CodeScreen({super.key, required this.email});
@@ -88,7 +89,7 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
               Text(_error!, style: const TextStyle(color: Color(0xFFF5A894))),
             ],
             const Spacer(),
-            FilledButton(
+            GoldButton(
               onPressed: _busy ? null : _verify,
               child: Text(_busy ? 'Проверяем…' : 'Войти'),
             ),

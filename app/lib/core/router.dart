@@ -86,32 +86,51 @@ class _HomeShell extends StatelessWidget {
   const _HomeShell({required this.shell});
   final StatefulNavigationShell shell;
 
+  static const _tabs = <(IconData, String)>[
+    (Icons.nightlight_outlined, 'Сегодня'),
+    (Icons.style_outlined, 'Вместе'),
+    (Icons.favorite_border, 'Пара'),
+  ];
+
   @override
   Widget build(BuildContext context) {
+    // Нижнее меню как в макетах: тёмная полоса, золотой активный пункт, без «пилюли».
     return Scaffold(
       body: shell,
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: VColors.bgDeep,
-        indicatorColor: const Color(0x33F3C98B),
-        selectedIndex: shell.currentIndex,
-        onDestinationSelected: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.nightlight_outlined),
-            selectedIcon: Icon(Icons.nightlight, color: VColors.gold),
-            label: 'Сегодня',
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: VColors.nav,
+          border: Border(top: BorderSide(color: Color(0x0FFFFFFF))),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 64,
+            child: Row(children: [
+              for (var i = 0; i < _tabs.length; i++)
+                Expanded(
+                  child: InkWell(
+                    onTap: () => shell.goBranch(i, initialLocation: i == shell.currentIndex),
+                    child: Semantics(
+                      selected: i == shell.currentIndex,
+                      button: true,
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(_tabs[i].$1,
+                            size: 24, color: i == shell.currentIndex ? VColors.gold : VColors.navInactive),
+                        const SizedBox(height: 4),
+                        Text(_tabs[i].$2,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: i == shell.currentIndex ? FontWeight.w600 : FontWeight.w400,
+                              color: i == shell.currentIndex ? VColors.gold : VColors.navInactive,
+                            )),
+                      ]),
+                    ),
+                  ),
+                ),
+            ]),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.favorite_border),
-            selectedIcon: Icon(Icons.favorite, color: VColors.gold),
-            label: 'Желания',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people, color: VColors.gold),
-            label: 'Мы',
-          ),
-        ],
+        ),
       ),
     );
   }

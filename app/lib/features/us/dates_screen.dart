@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 import 'us_screen.dart';
 
 const _kinds = <(String, String, IconData)>[
@@ -201,7 +202,7 @@ class _AddDateSheetState extends State<_AddDateSheet> {
             title: const Text('Каждый год'),
           ),
         const SizedBox(height: 12),
-        FilledButton(
+        GoldButton(
           onPressed: ready
               ? () => Navigator.of(context).pop({
                     'title': _title.text.trim().isEmpty ? _defaultTitle() : _title.text.trim(),

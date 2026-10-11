@@ -47,6 +47,8 @@ async def test_two_people_become_a_pair(client):
     me2 = (await client.get("/pairs/me", headers=h2)).json()
     assert me1["pair_id"] == me2["pair_id"]
     assert me1["partner_id"] == (await client.get("/auth/me", headers=h2)).json()["id"]
+    await client.put("/auth/me", headers=h2, json={"display_name": "Аня"})
+    assert (await client.get("/pairs/me", headers=h1)).json()["partner_name"] == "Аня"
 
     # Код одноразовый: третий человек не может им воспользоваться.
     t3 = await login(client, "third@example.ru")

@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:go_router/go_router.dart';
+
 import '../../core/api.dart';
+import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 import 'us_screen.dart';
 
 List<Map<String, dynamic>> _sections(Map<String, dynamic> p, String key) =>
@@ -18,104 +22,312 @@ Widget _sectionTitle(String t) => Padding(
           style: const TextStyle(letterSpacing: 1.4, fontSize: 12, color: Color(0xFFE2B57C))),
     );
 
-/// Памятка о партнёре: что он рассказал о себе + мои личные заметки.
-class PartnerMemoScreen extends ConsumerWidget {
+/// «Мой человек» — памятка о партнёре по макету: размеры, любит, нельзя, мечты; отдельно — мои заметки.
+class PartnerMemoScreen extends ConsumerStatefulWidget {
   const PartnerMemoScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PartnerMemoScreen> createState() => _PartnerMemoScreenState();
+}
+
+class _PartnerMemoScreenState extends ConsumerState<PartnerMemoScreen> {
+  int _tab = 0;
+
+  @override
+  Widget build(BuildContext context) {
     final person = ref.watch(personProvider);
+    final dates = ref.watch(datesProvider).valueOrNull;
     return Scaffold(
-      appBar: AppBar(title: Text('Памятка', style: display(22))),
       body: SafeArea(
         child: person.when(
           skipLoadingOnRefresh: true,
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text(errorText(e), style: const TextStyle(color: Color(0xFFF5A894)))),
+          error: (e, _) => Center(child: Text(errorText(e), style: const TextStyle(color: VColors.coral))),
           data: (p) {
-            final name = (p['partner_name'] as String?) ?? 'Партнёр';
+            final name = p['partner_name'] as String?;
+            final facts = <String, String>{
+              for (final s in _sections(p, 'partner'))
+                for (final f in _fields(s))
+                  if (f['value'] != null) f['key'] as String: f['value'] as String,
+            };
+            final together = dates?['together_days'] as int?;
+            final next = ((dates?['items'] as List?) ?? const [])
+                .cast<Map>()
+                .where((i) => (i['days_left'] as int) >= 0)
+                .firstOrNull;
             final notes = (p['notes'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-            final filledSections = _sections(p, 'partner')
-                .map((s) => (s, _fields(s).where((f) => f['value'] != null).toList()))
-                .where((pair) => pair.$2.isNotEmpty)
-                .toList();
 
-            return ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 32), children: [
-              Text(name, style: display(28)),
-              const SizedBox(height: 4),
-              const Text('Что партнёр рассказал о себе. Долгое нажатие — скопировать.',
-                  style: TextStyle(color: VColors.muted, fontSize: 13)),
-              if (filledSections.isEmpty)
-                Container(
-                  margin: const EdgeInsets.only(top: 18),
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: VColors.card, borderRadius: BorderRadius.circular(18)),
-                  child: const Text(
-                    'Пока пусто. Попросите партнёра заполнить «О себе» в разделе «Мы» — '
-                    'размеры, любимые цветы, мечты. Это займёт пару минут.',
-                    style: TextStyle(color: VColors.soft, height: 1.4),
-                  ),
-                ),
-              for (final (section, fields) in filledSections) ...[
-                _sectionTitle(section['title'] as String),
-                Container(
-                  decoration: BoxDecoration(color: VColors.card, borderRadius: BorderRadius.circular(18)),
-                  child: Column(children: [
-                    for (final f in fields)
-                      ListTile(
-                        title: Text(f['label'] as String, style: const TextStyle(color: VColors.muted, fontSize: 13)),
-                        subtitle: Text(f['value'] as String,
-                            style: const TextStyle(color: VColors.text, fontSize: 16, height: 1.35)),
-                        onLongPress: () {
-                          Clipboard.setData(ClipboardData(text: f['value'] as String));
-                          ScaffoldMessenger.of(context)
-                              .showSnackBar(const SnackBar(content: Text('Скопировано')));
-                        },
-                      ),
+            return ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 32), children: [
+              Row(children: [
+                const RoundBack(),
+                const SizedBox(width: 12),
+                Initial(name: name, size: 56),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Мой человек', style: display(24)),
+                    const SizedBox(height: 2),
+                    Text(
+                      [name ?? 'Партнёр', if (together != null) 'вместе $together ${plural(together, 'день', 'дня', 'дней')}']
+                          .join(' · '),
+                      style: const TextStyle(fontSize: 13, color: VColors.muted),
+                    ),
                   ]),
                 ),
-              ],
-              _sectionTitle('Мои заметки — видите только вы'),
-              for (final n in notes)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(color: VColors.card, borderRadius: BorderRadius.circular(14)),
-                  child: ListTile(
-                    leading: const Icon(Icons.lock_outline, color: VColors.lavender, size: 20),
-                    title: Text(n['text'] as String, style: const TextStyle(fontSize: 15, height: 1.35)),
-                    trailing: IconButton(
+              ]),
+              const SizedBox(height: 16),
+              PillTabs(
+                labels: ['${name ?? 'Партнёр'} о себе', 'Мои заметки'],
+                index: _tab,
+                onChanged: (i) => setState(() => _tab = i),
+              ),
+              const SizedBox(height: 14),
+              if (_tab == 0) ..._about(context, facts, next) else ..._notes(context, notes),
+            ]);
+          },
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _about(BuildContext context, Map<String, String> f, Map? next) {
+    final likes = [for (final k in const ['flowers', 'food', 'sweets', 'drinks', 'color', 'music', 'scent', 'place']) f[k]]
+        .whereType<String>()
+        .toList();
+    final mood = f['mood'];
+    final never = [f['allergies'], f['no_gifts']].whereType<String>().toList();
+    final dreams = <(String, String)>[
+      if (f['dream_gift'] != null) ('Хочет в подарок', f['dream_gift']!),
+      if (f['dream_trip'] != null) ('Мечтает съездить', f['dream_trip']!),
+      if (f['dream_try'] != null) ('Хочет попробовать', f['dream_try']!),
+    ];
+    final hasSizes = ['clothes_top', 'clothes_bottom', 'shoes', 'ring'].any(f.containsKey);
+
+    return [
+      if (next != null) ...[
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () => context.push('/us/dates'),
+            child: Ink(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: glowBox(radius: 18),
+              child: Row(children: [
+                const Icon(Icons.calendar_month_outlined, color: VColors.gold),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${next['title']} · ${formatDay(DateTime.parse(next['next'] as String))}',
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                      [
+                        _cap(daysLeftText(next['days_left'] as int)),
+                        if (next['years'] != null)
+                          '${next['years']} ${plural(next['years'] as int, 'год', 'года', 'лет')}',
+                      ].join(' · '),
+                      style: const TextStyle(fontSize: 13, color: VColors.label),
+                    ),
+                  ]),
+                ),
+                const Icon(Icons.chevron_right, color: VColors.muted),
+              ]),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
+      if (f.isEmpty)
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: cardBox(radius: 18),
+          child: const Text(
+            'Пока пусто. Попросите партнёра заполнить «О себе» в разделе «Пара» — '
+            'размеры, любимое, мечты. Это займёт пару минут.',
+            style: TextStyle(color: VColors.soft, height: 1.4),
+          ),
+        ),
+      if (hasSizes) ...[
+        _Box(
+          label: 'Размеры',
+          child: Row(children: [
+            for (final (k, l) in const [('clothes_top', 'Одежда'), ('clothes_bottom', 'Низ'), ('shoes', 'Обувь'), ('ring', 'Кольцо')])
+              Expanded(
+                child: GestureDetector(
+                  onLongPress: f[k] == null ? null : () => _copy(context, f[k]!),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(f[k] ?? '—',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: f[k] == null ? VColors.navInactive : VColors.text,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(l, style: const TextStyle(fontSize: 12, color: VColors.muted)),
+                  ]),
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(height: 12),
+      ],
+      if (likes.isNotEmpty || mood != null) ...[
+        _Box(
+          label: 'Любит',
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final l in likes) _Chip(l, onLongPress: () => _copy(context, l)),
+            if (mood != null) _Chip('Поднимает настроение: $mood', lavender: true),
+          ]),
+        ),
+        const SizedBox(height: 12),
+      ],
+      if (never.isNotEmpty) ...[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1630),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0x66F08C78)),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Row(children: [
+              Icon(Icons.warning_amber_rounded, size: 16, color: VColors.coral),
+              SizedBox(width: 8),
+              Text('НЕЛЬЗЯ', style: TextStyle(fontSize: 12, letterSpacing: 1.5, color: VColors.coral)),
+            ]),
+            const SizedBox(height: 8),
+            Text(never.join(' · '), style: const TextStyle(fontSize: 14, height: 1.5, color: Color(0xFFF1E3E0))),
+          ]),
+        ),
+        const SizedBox(height: 12),
+      ],
+      if (dreams.isNotEmpty)
+        _Box(
+          label: 'Мечты',
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            for (final (l, v) in dreams)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: GestureDetector(
+                  onLongPress: () => _copy(context, v),
+                  child: Text.rich(TextSpan(children: [
+                    TextSpan(text: '$l: ', style: const TextStyle(color: VColors.muted)),
+                    TextSpan(text: v),
+                  ]), style: const TextStyle(fontSize: 14, height: 1.5, color: VColors.soft)),
+                ),
+              ),
+          ]),
+        ),
+    ];
+  }
+
+  List<Widget> _notes(BuildContext context, List<Map<String, dynamic>> notes) {
+    return [
+      _Box(
+        label: 'Заметил(а) и запомнил(а) — видите только вы',
+        trailing: Material(
+          color: const Color(0xFF262A55),
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _addNote(context),
+            child: const SizedBox(
+              width: 44,
+              height: 32,
+              child: Icon(Icons.add, size: 18, color: VColors.gold, semanticLabel: 'Добавить заметку'),
+            ),
+          ),
+        ),
+        child: notes.isEmpty
+            ? const Text('Запишите, что партнёр упомянул вскользь: «хочу в Казань», серьги в витрине…',
+                style: TextStyle(fontSize: 14, height: 1.5, color: VColors.text2))
+            : Column(children: [
+                for (final n in notes)
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Text('«${n['text']}» · ${formatDay(DateTime.parse(n['created_at'] as String).toLocal())}',
+                            style: const TextStyle(fontSize: 14, height: 1.5, color: VColors.soft)),
+                      ),
+                    ),
+                    IconButton(
                       tooltip: 'Удалить',
-                      icon: const Icon(Icons.delete_outline, color: VColors.muted),
+                      icon: const Icon(Icons.close, size: 18, color: VColors.muted),
                       onPressed: () async {
                         await ref.read(dioProvider).delete('/person/notes/${n['id']}');
                         ref.invalidate(personProvider);
                       },
                     ),
-                  ),
-                ),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final text = await askText(context,
-                      title: 'Новая заметка',
-                      hint: 'Например: заглядывалась на серёжки в «…»',
-                      maxLength: 500,
-                      maxLines: 4);
-                  if (text == null || text.trim().isEmpty) return;
-                  try {
-                    await ref.read(dioProvider).post('/person/notes', data: {'text': text.trim()});
-                    ref.invalidate(personProvider);
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
-                    }
-                  }
-                },
-                icon: const Icon(Icons.add),
-                label: const Text('Добавить заметку'),
-              ),
-            ]);
-          },
+                  ]),
+              ]),
+      ),
+    ];
+  }
+
+  Future<void> _addNote(BuildContext context) async {
+    final text = await askText(context,
+        title: 'Новая заметка', hint: 'Например: заглядывалась на серёжки в «…»', maxLength: 500, maxLines: 4);
+    if (text == null || text.trim().isEmpty) return;
+    try {
+      await ref.read(dioProvider).post('/person/notes', data: {'text': text.trim()});
+      ref.invalidate(personProvider);
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
+    }
+  }
+
+  void _copy(BuildContext context, String v) {
+    Clipboard.setData(ClipboardData(text: v));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Скопировано')));
+  }
+
+  static String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+}
+
+class _Box extends StatelessWidget {
+  const _Box({required this.label, required this.child, this.trailing});
+  final String label;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: cardBox(radius: 18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: SectionLabel(label)),
+          if (trailing != null) trailing!,
+        ]),
+        const SizedBox(height: 10),
+        child,
+      ]),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip(this.text, {this.lavender = false, this.onLongPress});
+  final String text;
+  final bool lavender;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          color: lavender ? const Color(0x24B9A3F0) : const Color(0x1FF3C98B),
         ),
+        child: Text(text, style: TextStyle(fontSize: 13, color: lavender ? VColors.lavenderText : VColors.goldText)),
       ),
     );
   }

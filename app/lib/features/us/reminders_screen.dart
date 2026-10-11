@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 import 'us_screen.dart';
 
 class RemindersScreen extends ConsumerWidget {
@@ -200,7 +201,7 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             ),
         ]),
         const SizedBox(height: 14),
-        FilledButton(
+        GoldButton(
           onPressed: _text.text.trim().isEmpty
               ? null
               : () => Navigator.of(context).pop({
