@@ -107,3 +107,34 @@ async def test_radar_daily_limit(client):
     for _ in range(limit):
         assert (await client.post("/radar", headers=ha, json={"kind": "hug"})).status_code == 201
     assert (await client.post("/radar", headers=ha, json={"kind": "hug"})).status_code == 429
+
+
+async def test_mood_of_the_day(client):
+    from app import push
+    push.outbox.clear()
+    set_day(DAY1)
+    ha, hb = await make_pair(client)
+    await client.put("/auth/me", headers=ha, json={"display_name": "Аня"})
+    b = (await client.get("/auth/me", headers=hb)).json()["id"]
+
+    t = (await client.get("/today", headers=ha)).json()
+    assert t["my_mood"] is None and t["partner_mood"] is None
+    assert [o["kind"] for o in t["mood_options"]][:4] == ["attention", "quiet", "close", "hard"]
+    assert (await client.put("/today/mood", headers=ha, json={"kind": "sad-ish"})).status_code == 422
+
+    mine = (await client.put("/today/mood", headers=ha, json={"kind": "quiet"})).json()["my_mood"]
+    assert mine == {"kind": "quiet", "label": "Хочу тишины", "hint": None}  # себе подсказку не показываем
+    seen_by_b = (await client.get("/today", headers=hb)).json()["partner_mood"]
+    assert seen_by_b["label"] == "Хочу тишины" and seen_by_b["hint"]       # партнёру — как поддержать
+    # Передумала — меняем; уведомление партнёру одно в день и без самого состояния.
+    await client.put("/today/mood", headers=ha, json={"kind": "hard"})
+    got = [body for u, _, body, _ in push.outbox if u == b]
+    assert got == ["Аня поделился(ась) настроением дня"]
+    assert (await client.get("/today", headers=hb)).json()["partner_mood"]["kind"] == "hard"
+
+    await client.put("/today/mood", headers=ha, json={"kind": None})
+    assert (await client.get("/today", headers=hb)).json()["partner_mood"] is None
+    # Назавтра — с чистого листа.
+    await client.put("/today/mood", headers=ha, json={"kind": "good"})
+    set_day(DAY1 + timedelta(days=1))
+    assert (await client.get("/today", headers=hb)).json()["partner_mood"] is None

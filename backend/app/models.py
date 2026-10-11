@@ -347,3 +347,17 @@ class PairPause(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), unique=True)
     by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     since: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DailyMood(Base):
+    """«Состояние сегодня» одного человека. Видно партнёру только в этот день."""
+
+    __tablename__ = "daily_moods"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", "day", name="uq_mood_per_day"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    day: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(16))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

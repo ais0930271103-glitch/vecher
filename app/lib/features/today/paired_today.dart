@@ -105,9 +105,17 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
           ),
         ]),
         const SizedBox(height: 16),
+        if (t['partner_mood'] != null)
+          _PartnerMood(mood: Map<String, dynamic>.from(t['partner_mood'] as Map), partnerName: widget.partnerName),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>(), partnerName: widget.partnerName),
         _FromPartner(partnerName: widget.partnerName),
         const _Upcoming(),
+        _MyMood(
+          current: (t['my_mood'] as Map?)?['kind'] as String?,
+          options: ((t['mood_options'] as List?) ?? const []).cast<Map>(),
+          partnerName: widget.partnerName,
+        ),
+        const SizedBox(height: 16),
         _QuestionCard(data: t, partnerName: widget.partnerName),
         const SizedBox(height: 18),
         const _RadarRow(),
@@ -721,6 +729,153 @@ class _PartnerCard extends StatelessWidget {
             ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+const _moodIcons = <String, IconData>{
+  'attention': Icons.volunteer_activism_outlined,
+  'quiet': Icons.bedtime_outlined,
+  'close': Icons.favorite_outline,
+  'hard': Icons.cloud_outlined,
+  'good': Icons.wb_sunny_outlined,
+};
+
+/// «Как ты сегодня?» — партнёр увидит и получит подсказку, как поддержать.
+class _MyMood extends ConsumerStatefulWidget {
+  const _MyMood({required this.current, required this.options, this.partnerName});
+  final String? current;
+  final List<Map> options;
+  final String? partnerName;
+
+  @override
+  ConsumerState<_MyMood> createState() => _MyMoodState();
+}
+
+class _MyMoodState extends ConsumerState<_MyMood> {
+  String? _pending; // выбранное, пока ждём ответ сервера — чтобы отклик был мгновенным
+  bool _busy = false;
+
+  Future<void> _pick(String kind) async {
+    if (_busy) return;
+    final next = kind == (_pending ?? widget.current) ? null : kind; // повторное нажатие — убрать
+    setState(() {
+      _busy = true;
+      _pending = next ?? '';
+    });
+    try {
+      await ref.read(dioProvider).put('/today/mood', data: {'kind': next});
+      ref.invalidate(todayProvider);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _pending = null;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = _pending == null ? widget.current : (_pending!.isEmpty ? null : _pending);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: cardBox(),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SectionLabel('Как ты сегодня?', color: VColors.label),
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final o in widget.options)
+            _MoodChip(
+              icon: _moodIcons[o['kind']] ?? Icons.circle_outlined,
+              label: o['label'] as String,
+              selected: o['kind'] == selected,
+              onTap: () => _pick(o['kind'] as String),
+            ),
+        ]),
+        const SizedBox(height: 10),
+        Text(
+          selected == null
+              ? 'Отметь — ${widget.partnerName ?? 'партнёр'} узнает, как тебя сегодня поддержать.'
+              : '${widget.partnerName ?? 'Партнёр'} видит это и подсказку, как поддержать. Нажми ещё раз, чтобы убрать.',
+          style: const TextStyle(color: VColors.muted, fontSize: 13),
+        ),
+      ]),
+    );
+  }
+}
+
+class _MoodChip extends StatelessWidget {
+  const _MoodChip({required this.icon, required this.label, required this.selected, required this.onTap});
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? VColors.segment : VColors.chip,
+      shape: StadiumBorder(side: BorderSide(color: selected ? VColors.gold : const Color(0x14FFFFFF))),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 17, color: selected ? VColors.gold : VColors.lavender),
+            const SizedBox(width: 7),
+            Text(label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? VColors.goldText : VColors.text,
+                )),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// Настроение партнёра и подсказка, как его поддержать.
+class _PartnerMood extends StatelessWidget {
+  const _PartnerMood({required this.mood, this.partnerName});
+  final Map<String, dynamic> mood;
+  final String? partnerName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: glowBox(radius: 20),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Initial(name: partnerName),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(_moodIcons[mood['kind']] ?? Icons.circle_outlined, size: 17, color: VColors.gold),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text('${partnerName ?? 'Партнёр'} сегодня: «${mood['label']}»',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                ),
+              ]),
+              if (mood['hint'] != null) ...[
+                const SizedBox(height: 6),
+                Text('Как поддержать: ${mood['hint']}',
+                    style: const TextStyle(fontSize: 14, height: 1.4, color: VColors.soft)),
+              ],
+            ]),
+          ),
+        ]),
       ),
     );
   }

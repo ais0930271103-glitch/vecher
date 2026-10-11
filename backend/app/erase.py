@@ -3,13 +3,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
-    Activity, Consent, DailyAnswer, DeviceToken, Letter, LoginCode, Pair, PairDate, PairMember, PairPause,
+    Activity, Consent, DailyAnswer, DailyMood, DeviceToken, Letter, LoginCode, Pair, PairDate, PairMember, PairPause,
     PairSubscription, PartnerNote, PlanUnlock, PlanVote, ProfileFact, QuietWish, RadarSignal, Reminder, Surprise,
     User, UserSettings, WishSwipe, WishView,
 )
 
 # Всё, что относится к паре: ответы, выборы в свайпере, планы, даты, письма, сюрпризы, заметки.
-PAIR_TABLES = (DailyAnswer, Activity, RadarSignal, WishSwipe, WishView, PairSubscription, PlanUnlock, PlanVote,
+PAIR_TABLES = (DailyAnswer, DailyMood, Activity, RadarSignal, WishSwipe, WishView, PairSubscription, PlanUnlock, PlanVote,
                PartnerNote, PairDate, Reminder, Letter, Surprise, PairPause)
 # Личное, не связанное с парой: анкета «о себе», тихие желания, устройства, согласия, настройки.
 USER_TABLES = ((ProfileFact, ProfileFact.user_id), (QuietWish, QuietWish.user_id),

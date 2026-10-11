@@ -7,10 +7,11 @@ from sqlalchemy import distinct, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
+from ..content.moods import MOODS
 from ..content.questions import QUESTIONS
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date
-from ..models import Activity, DailyAnswer, Question, RadarSignal
+from ..models import Activity, DailyAnswer, DailyMood, Question, RadarSignal, utcnow
 from ..push import display_name, notify
 
 router = APIRouter(tags=["today"])
@@ -92,6 +93,29 @@ class RadarOut(BaseModel):
     created_at: datetime
 
 
+class MoodOut(BaseModel):
+    kind: str
+    label: str
+    hint: str | None = None  # только для настроения партнёра: как поддержать
+
+
+class MoodOption(BaseModel):
+    kind: str
+    label: str
+
+
+class MoodIn(BaseModel):
+    kind: str | None  # None — убрать
+
+
+def _mood(kind: str | None, day: date, with_hint: bool) -> MoodOut | None:
+    if kind not in MOODS:
+        return None
+    m = MOODS[kind]
+    hint = m["hints"][day.toordinal() % len(m["hints"])] if with_hint else None
+    return MoodOut(kind=kind, label=m["label"], hint=hint)
+
+
 class TodayOut(BaseModel):
     day: date
     question: QuestionOut
@@ -101,6 +125,9 @@ class TodayOut(BaseModel):
     streak: int
     today_complete: bool
     radar_incoming: list[RadarOut]
+    my_mood: MoodOut | None = None
+    partner_mood: MoodOut | None = None
+    mood_options: list[MoodOption] = []
 
 
 class AnswerIn(BaseModel):
@@ -135,6 +162,12 @@ async def get_today(
         .order_by(RadarSignal.created_at.desc())
         .limit(10)
     )).scalars().all()
+    moods = {
+        m.user_id: m.kind
+        for m in (await session.execute(
+            select(DailyMood).where(DailyMood.pair_id == ctx.pair.id, DailyMood.day == day)
+        )).scalars()
+    }
     streak, complete = await pair_streak(session, ctx.pair.id, day)
     await session.commit()  # ensure_questions мог залить стартовые вопросы
     return TodayOut(
@@ -149,6 +182,9 @@ async def get_today(
             RadarOut(id=r.id, kind=r.kind, label=RADAR_KINDS.get(r.kind, r.kind), created_at=r.created_at)
             for r in incoming
         ],
+        my_mood=_mood(moods.get(ctx.user.id), day, with_hint=False),
+        partner_mood=_mood(moods.get(ctx.partner_id), day, with_hint=True),
+        mood_options=[MoodOption(kind=k, label=v["label"]) for k, v in MOODS.items()],
     )
 
 
@@ -217,3 +253,35 @@ async def radar_seen(
     )
     await session.commit()
     return {"ok": True}
+
+
+@router.put("/today/mood", response_model=TodayOut)
+async def set_mood(
+    body: MoodIn,
+    ctx: PairContext = Depends(active_pair),
+    session: AsyncSession = Depends(get_session),
+    day: date = Depends(today_date),
+) -> TodayOut:
+    """«Состояние сегодня». Партнёр видит его и подсказку, как поддержать; завтра — с чистого листа."""
+    if body.kind is not None and body.kind not in MOODS:
+        raise HTTPException(422, "Неизвестное состояние")
+    row = (await session.execute(
+        select(DailyMood).where(DailyMood.pair_id == ctx.pair.id, DailyMood.user_id == ctx.user.id,
+                                DailyMood.day == day)
+    )).scalar_one_or_none()
+    if body.kind is None:
+        if row is not None:
+            await session.delete(row)
+        await session.commit()
+        return await get_today(ctx, session, day)
+    if row is None:
+        session.add(DailyMood(pair_id=ctx.pair.id, user_id=ctx.user.id, day=day, kind=body.kind))
+    else:
+        row.kind, row.updated_at = body.kind, utcnow()
+    await mark_activity(session, ctx, day)
+    await session.commit()
+    # В уведомлении — без самого состояния (телефон может лежать экраном вверх). Раз в день.
+    name = await display_name(session, ctx.user.id)
+    await notify(session, ctx.partner_id, "Вечер", f"{name} поделился(ась) настроением дня",
+                 {"open": "today"}, key=f"mood:{ctx.pair.id}:{day}:{ctx.user.id}")
+    return await get_today(ctx, session, day)
