@@ -29,11 +29,11 @@ def _send(to: str, subject: str, text: str, html: str) -> None:
     msg.add_alternative(html, subtype="html")
     ctx = ssl.create_default_context()
     if s.smtp_port == 465:
-        with smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, context=ctx, timeout=15) as smtp:
+        with smtplib.SMTP_SSL(s.smtp_host, s.smtp_port, context=ctx, timeout=8) as smtp:
             smtp.login(s.smtp_user, s.smtp_password)
             smtp.send_message(msg)
     else:
-        with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
+        with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=8) as smtp:
             smtp.starttls(context=ctx)
             smtp.login(s.smtp_user, s.smtp_password)
             smtp.send_message(msg)

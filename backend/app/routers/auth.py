@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +19,7 @@ from ..security import create_token, current_user, hash_otp, new_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 log = logging.getLogger("vecher.auth")
+_mail_tasks: set[asyncio.Task] = set()
 
 
 class CodeRequest(BaseModel):
@@ -87,15 +89,19 @@ async def request_code(body: CodeRequest, session: AsyncSession = Depends(get_se
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=s.otp_ttl_minutes),
     ))
     await session.commit()
-    sent = await send_login_code(email, code)
     if s.is_dev:
+        await send_login_code(email, code)
         log.warning("DEV login code for %s: %s", email, code)
         return {"sent": True, "dev_code": code}
-    if not sent:
-        if s.env != "staging":
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Не получилось отправить письмо, попробуй позже")
-        # Тестовый сервер без почты: код только в логе сервера (docker compose logs api). В ответ — никогда.
-        log.warning("Письмо не отправлено — код для %s: %s", email, code)
+    if s.env == "staging":
+        # Тестовый сервер: письмо уходит в фоне (не ждём почту), код дублируется в лог — в ответ никогда.
+        log.warning("Код для %s: %s", email, code)
+        task = asyncio.create_task(send_login_code(email, code))
+        _mail_tasks.add(task)
+        task.add_done_callback(_mail_tasks.discard)
+        return {"sent": True}
+    if not await send_login_code(email, code):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Не получилось отправить письмо, попробуй позже")
     return {"sent": True}
 
 
