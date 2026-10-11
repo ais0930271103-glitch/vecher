@@ -208,7 +208,7 @@ class _Header extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF3A2C5E), Color(0xFF1F1D48)],
+          colors: [Color(0xFF3B2B33), Color(0xFF231C25)],
         ),
         border: Border.all(color: const Color(0x4DF3C98B)),
       ),
@@ -249,7 +249,7 @@ class _OptionCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: chosen ? const Color(0xFF2A2458) : VColors.card,
+        color: chosen ? const Color(0xFF2E2630) : VColors.card,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: chosen ? VColors.gold : (mine ? const Color(0x80F3C98B) : const Color(0x14FFFFFF)),
@@ -364,7 +364,7 @@ class _Tag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: gold ? VColors.gold : const Color(0x339B7FE0),
+        color: gold ? VColors.gold : const Color(0x33C79BB2),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(text,
@@ -441,7 +441,7 @@ class _Paywall extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF2A2458), Color(0xFF1A1C42)],
+          colors: [Color(0xFF2E2630), Color(0xFF1E1921)],
         ),
         border: Border.all(color: const Color(0x66F3C98B)),
       ),

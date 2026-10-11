@@ -15,7 +15,7 @@ class WelcomeScreen extends StatelessWidget {
           gradient: RadialGradient(
             center: Alignment(0, -0.45),
             radius: 1.1,
-            colors: [Color(0xFF262A5C), Color(0xFF12143A), VColors.bgDeep],
+            colors: [Color(0xFF3A2B33), Color(0xFF1C1820), VColors.bgDeep],
             stops: [0, 0.45, 1],
           ),
         ),

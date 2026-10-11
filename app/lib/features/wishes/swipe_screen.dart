@@ -258,8 +258,8 @@ class _CardFace extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: dim
-                ? const [Color(0xFF1C1E44), Color(0xFF15173A)]
-                : const [Color(0xFF2E2760), Color(0xFF1A1C42)],
+                ? const [Color(0xFF221D25), Color(0xFF1A161D)]
+                : const [Color(0xFF34292F), Color(0xFF1E1921)],
           ),
           border: Border.all(color: h == null ? const Color(0x38F3C98B) : h.$2.withOpacity(0.4 + 0.6 * h.$3)),
           boxShadow: dim ? null : const [BoxShadow(color: Color(0x66000000), blurRadius: 24, offset: Offset(0, 12))],

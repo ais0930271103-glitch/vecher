@@ -83,7 +83,7 @@ class _MatchesTile extends ConsumerWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF3A2C5E), Color(0xFF1F1D48)],
+              colors: [Color(0xFF3B2B33), Color(0xFF231C25)],
             ),
             border: Border.all(color: const Color(0x4DF3C98B)),
           ),
