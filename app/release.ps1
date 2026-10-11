@@ -23,7 +23,8 @@ if (-not $Name) {
 }
 
 Write-Host "== Сборка $Name ($Build)" -ForegroundColor Yellow
-flutter build apk --release --build-name $Name --build-number $Build --dart-define=API_URL=$Api
+# Только arm64 — все современные телефоны; файл примерно втрое меньше «универсального».
+flutter build apk --release --target-platform android-arm64 --build-name $Name --build-number $Build --dart-define=API_URL=$Api
 if ($LASTEXITCODE -ne 0) { throw "Сборка не удалась" }
 
 $Out = Join-Path $env:TEMP "vecher-release"
