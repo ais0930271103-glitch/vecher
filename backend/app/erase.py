@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import (
     Activity, Consent, DailyAnswer, DailyMood, Invite, DeviceToken, Letter, LoginCode, Pair, PairDate, PairLevel, PairMember, PairPause,
     PairSubscription, PartnerNote, PlanUnlock, PlanVote, ProfileFact, QuietWish, RadarSignal, Reminder, Surprise,
-    User, UserSettings, WishSwipe, WishView,
+    User, UserCity, UserSettings, WishSwipe, WishView,
 )
 
 # Всё, что относится к паре: ответы, выборы в свайпере, планы, даты, письма, сюрпризы, заметки.
@@ -13,7 +13,8 @@ PAIR_TABLES = (DailyAnswer, DailyMood, Activity, RadarSignal, WishSwipe, WishVie
                PartnerNote, PairDate, Reminder, Letter, Surprise, PairPause, PairLevel, Invite)
 # Личное, не связанное с парой: анкета «о себе», тихие желания, устройства, согласия, настройки.
 USER_TABLES = ((ProfileFact, ProfileFact.user_id), (QuietWish, QuietWish.user_id),
-               (DeviceToken, DeviceToken.user_id), (Consent, Consent.user_id), (UserSettings, UserSettings.user_id))
+               (DeviceToken, DeviceToken.user_id), (Consent, Consent.user_id), (UserSettings, UserSettings.user_id),
+               (UserCity, UserCity.user_id))
 
 
 async def erase_pair(session: AsyncSession, pair_id: str) -> None:

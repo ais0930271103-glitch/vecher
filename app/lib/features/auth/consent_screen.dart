@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/onboarding.dart';
 import '../../core/privacy.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
@@ -45,7 +46,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
         'personal': true,
       });
       if (!mounted) return;
-      context.go((r.data as Map)['display_name'] == null ? '/name' : '/today');
+      context.go(nextOnboardingStep(r.data as Map));
     } catch (e) {
       setState(() => _error = errorText(e));
     } finally {

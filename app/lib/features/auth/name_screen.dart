@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/onboarding.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 
@@ -27,8 +28,8 @@ class _NameScreenState extends ConsumerState<NameScreen> {
       _error = null;
     });
     try {
-      await ref.read(dioProvider).put('/auth/me', data: {'display_name': name});
-      if (mounted) context.go('/today');
+      final r = await ref.read(dioProvider).put('/auth/me', data: {'display_name': name});
+      if (mounted) context.go(nextOnboardingStep(r.data as Map));
     } catch (e) {
       setState(() => _error = errorText(e));
     } finally {

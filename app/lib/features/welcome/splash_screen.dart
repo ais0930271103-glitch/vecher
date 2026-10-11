@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/onboarding.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 
@@ -28,11 +29,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       // Сначала согласие на обработку данных (и заново, если его текст обновился), потом имя.
       try {
         final me = (await ref.read(dioProvider).get('/auth/me')).data as Map;
-        if (me['consent_ok'] == false) {
-          target = '/consent';
-        } else if (me['display_name'] == null) {
-          target = '/name';
-        }
+        target = nextOnboardingStep(me);
       } catch (_) {
         // Нет связи или сессия истекла — экран «Сегодня» сам покажет, что не так.
       }

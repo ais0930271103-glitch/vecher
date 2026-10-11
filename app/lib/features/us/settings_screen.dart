@@ -7,11 +7,17 @@ import '../../core/api.dart';
 import '../../core/privacy.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
+import '../auth/city_screen.dart';
 import '../today/today_screen.dart' show pairProvider;
 import 'us_screen.dart';
 
 final _settingsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final r = await ref.read(dioProvider).get('/settings');
+  return Map<String, dynamic>.from(r.data as Map);
+});
+
+final _cityProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final r = await ref.read(dioProvider).get('/me/city');
   return Map<String, dynamic>.from(r.data as Map);
 });
 
@@ -160,6 +166,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) context.go('/welcome');
   }
 
+  Future<void> _setCity(Map<String, dynamic> body) async {
+    try {
+      await ref.read(dioProvider).put('/me/city', data: body);
+      ref.invalidate(_cityProvider);
+    } catch (e) {
+      _toast(errorText(e));
+    }
+  }
+
+  Future<void> _changeHome() async {
+    final name = await pickCity(context, title: 'Где ты живёшь?');
+    if (name != null) await _setCity({'home_city': name});
+  }
+
+  Future<void> _travel() async {
+    final name = await pickCity(context,
+        title: 'Где ты сейчас?', subtitle: 'Покажем места и события там, пока ты в поездке.');
+    if (name == null || !mounted) return;
+    final now = DateTime.now();
+    final until = await showDatePicker(
+      context: context,
+      initialDate: now.add(const Duration(days: 3)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      helpText: 'До какого дня? (можно пропустить)',
+      cancelText: 'Не знаю',
+    );
+    await _setCity({
+      'travel_city': name,
+      if (until != null)
+        'travel_until': '${until.year}-${until.month.toString().padLeft(2, '0')}-${until.day.toString().padLeft(2, '0')}',
+    });
+  }
+
   Future<void> _rename(String? current) async {
     final name = await askText(context, title: 'Как тебя зовут?', initial: current ?? '', maxLength: 60);
     if (name == null || name.trim().isEmpty) return;
@@ -177,6 +217,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final settings = ref.watch(_settingsProvider).valueOrNull;
     final me = ref.watch(_meProvider).valueOrNull;
+    final city = ref.watch(_cityProvider).valueOrNull;
+    final travelUntil = city?['travel_until'] as String?;
     final pair = ref.watch(pairProvider).valueOrNull;
     final active = pair?['status'] == 'active';
     final paused = pair?['paused'] == true;
@@ -246,6 +288,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ]),
           ],
+          const SizedBox(height: 24),
+          const SectionLabel('Город', color: VColors.label),
+          const SizedBox(height: 10),
+          _Group(children: [
+            _LinkRow(
+              title: 'Живу в',
+              subtitle: city?['home_city'] as String? ?? 'Не указан',
+              onTap: _changeHome,
+            ),
+            if (city?['travel_city'] == null)
+              _LinkRow(
+                title: 'Сейчас в другом городе',
+                subtitle: 'Уехал(а)? Подборки будут для того города',
+                onTap: _travel,
+              )
+            else
+              _LinkRow(
+                title: 'Сейчас в: ${city!['travel_city']}',
+                subtitle: travelUntil == null
+                    ? 'Нажми, когда вернёшься'
+                    : 'До ${travelUntil.substring(8, 10)}.${travelUntil.substring(5, 7)} · нажми, если вернулся(лась) раньше',
+                onTap: () => _setCity({'travel_city': ''}),
+              ),
+          ]),
           const SizedBox(height: 24),
           const SectionLabel('Аккаунт', color: VColors.label),
           const SizedBox(height: 10),

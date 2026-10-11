@@ -11,7 +11,7 @@ from ..db import get_session
 from ..consent import CONSENT_VERSION
 from ..deps import has_consent
 from ..erase import erase_user
-from ..models import Consent, LoginCode, PairMember, User
+from ..models import Consent, LoginCode, PairMember, User, UserCity
 from ..push import notify
 from ..security import create_token, current_user, hash_otp, new_otp
 
@@ -34,6 +34,7 @@ class TokenOut(BaseModel):
     is_new: bool
     has_name: bool  # false — приложение сразу спросит имя
     has_consent: bool  # false — сначала экран согласия на обработку данных
+    has_city: bool = False  # false — после имени спросим город
 
 
 class NameIn(BaseModel):
@@ -46,6 +47,7 @@ class MeOut(BaseModel):
     display_name: str | None
     consent_ok: bool = True    # общее согласие (без него — экран согласия при входе)
     special_ok: bool = False   # согласие на интимное и здоровье (спрашиваем в карточках и анкете)
+    has_city: bool = False     # город указан (спрашиваем после имени)
     consent_version: str = CONSENT_VERSION
 
 
@@ -58,7 +60,8 @@ class ConsentIn(BaseModel):
 async def _me_out(session: AsyncSession, user: User) -> MeOut:
     return MeOut(id=user.id, email=user.email, display_name=user.display_name,
                  consent_ok=await has_consent(session, user.id),
-                 special_ok=await has_consent(session, user.id, ("special",)))
+                 special_ok=await has_consent(session, user.id, ("special",)),
+                 has_city=await session.get(UserCity, user.id) is not None)
 
 
 @router.post("/request-code")
@@ -127,7 +130,8 @@ async def verify(body: CodeVerify, session: AsyncSession = Depends(get_session))
         session.add(user)
     await session.commit()
     return TokenOut(access_token=create_token(user.id), user_id=user.id, is_new=is_new,
-                    has_name=bool(user.display_name), has_consent=await has_consent(session, user.id))
+                    has_name=bool(user.display_name), has_consent=await has_consent(session, user.id),
+                    has_city=await session.get(UserCity, user.id) is not None)
 
 
 @router.get("/me", response_model=MeOut)

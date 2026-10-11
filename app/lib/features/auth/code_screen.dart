@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/onboarding.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 
@@ -34,12 +35,8 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
       final data = r.data as Map;
       await saveToken(data['access_token'] as String);
       if (!mounted) return;
-      // Новый человек: согласие на обработку данных → имя → «Сегодня».
-      context.go(data['has_consent'] != true
-          ? '/consent'
-          : data['has_name'] == true
-              ? '/today'
-              : '/name');
+      // Новый человек: согласие на обработку данных → имя → город → «Сегодня».
+      context.go(nextOnboardingStep(data));
     } catch (e) {
       setState(() => _error = errorText(e));
     } finally {

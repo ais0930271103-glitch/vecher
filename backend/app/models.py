@@ -392,3 +392,16 @@ class Invite(Base):
     proposed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # «давай в другой день»
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserCity(Base):
+    """Город человека: где живёт и где сейчас (если уехал). Для подборок мест и событий."""
+
+    __tablename__ = "user_cities"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    home_city: Mapped[str] = mapped_column(String(60))
+    home_tz: Mapped[str | None] = mapped_column(String(40))
+    travel_city: Mapped[str | None] = mapped_column(String(60))
+    travel_tz: Mapped[str | None] = mapped_column(String(40))
+    travel_until: Mapped[date | None] = mapped_column(Date)  # включительно; пусто — пока не вернётся
