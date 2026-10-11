@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/auth/code_screen.dart';
+import '../features/auth/consent_screen.dart';
 import '../features/auth/email_screen.dart';
 import '../features/auth/name_screen.dart';
 import '../features/solo/solo_screen.dart';
@@ -10,6 +11,7 @@ import '../features/today/today_screen.dart';
 import '../features/us/dates_screen.dart';
 import '../features/us/person_screens.dart';
 import '../features/us/reminders_screen.dart';
+import '../features/us/settings_screen.dart';
 import '../features/us/us_screen.dart';
 import '../features/welcome/splash_screen.dart';
 import '../features/welcome/welcome_screen.dart';
@@ -31,6 +33,7 @@ final router = GoRouter(
     GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
     GoRoute(path: '/login', builder: (_, __) => const EmailScreen()),
     GoRoute(path: '/name', builder: (_, __) => const NameScreen()),
+    GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(
       path: '/code',
       builder: (_, state) => CodeScreen(email: state.extra as String? ?? ''),
@@ -81,6 +84,7 @@ final router = GoRouter(
               GoRoute(path: 'me', parentNavigatorKey: _rootKey, builder: (_, __) => const AboutMeScreen()),
               GoRoute(path: 'dates', parentNavigatorKey: _rootKey, builder: (_, __) => const DatesScreen()),
               GoRoute(path: 'reminders', parentNavigatorKey: _rootKey, builder: (_, __) => const RemindersScreen()),
+              GoRoute(path: 'settings', parentNavigatorKey: _rootKey, builder: (_, __) => const SettingsScreen()),
             ],
           ),
         ]),

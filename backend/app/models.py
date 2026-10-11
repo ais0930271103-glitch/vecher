@@ -310,3 +310,40 @@ class PushLog(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     key: Mapped[str] = mapped_column(String(120), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- Приватность и 152-ФЗ ----------
+
+class Consent(Base):
+    """Согласие на обработку ПДн: personal — обычные данные, special — сведения об интимной жизни и здоровье
+    (ст. 10 152-ФЗ, отдельное согласие). Храним версию текста, на которую человек согласился."""
+
+    __tablename__ = "consents"
+    __table_args__ = (UniqueConstraint("user_id", "kind", "version", name="uq_consent"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # personal | special
+    version: Mapped[str] = mapped_column(String(16))
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserSettings(Base):
+    """Настройки человека, которые нужны серверу (PIN и запрет скриншотов живут только на телефоне)."""
+
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    push_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    push_private: Mapped[bool] = mapped_column(Boolean, default=False)  # уведомления без текста
+
+
+class PairPause(Base):
+    """Пара на паузе: уведомления друг другу не приходят. Снимает тот, кто поставил."""
+
+    __tablename__ = "pair_pauses"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), unique=True)
+    by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    since: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

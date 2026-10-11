@@ -25,10 +25,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     final token = await readToken();
     var target = token == null ? '/welcome' : '/today';
     if (token != null) {
-      // Тем, кто зарегистрировался до появления шага с именем, тоже предложим его указать.
+      // Сначала согласие на обработку данных (и заново, если его текст обновился), потом имя.
       try {
-        final me = await ref.read(dioProvider).get('/auth/me');
-        if ((me.data as Map)['display_name'] == null) target = '/name';
+        final me = (await ref.read(dioProvider).get('/auth/me')).data as Map;
+        if (me['consent_ok'] == false) {
+          target = '/consent';
+        } else if (me['display_name'] == null) {
+          target = '/name';
+        }
       } catch (_) {
         // Нет связи или сессия истекла — экран «Сегодня» сам покажет, что не так.
       }

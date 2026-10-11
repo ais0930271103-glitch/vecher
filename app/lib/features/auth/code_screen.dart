@@ -34,8 +34,12 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
       final data = r.data as Map;
       await saveToken(data['access_token'] as String);
       if (!mounted) return;
-      // Новый человек (или без имени) — сначала спросим, как его зовут.
-      context.go(data['has_name'] == true ? '/today' : '/name');
+      // Новый человек: согласие на обработку данных → имя → «Сегодня».
+      context.go(data['has_consent'] != true
+          ? '/consent'
+          : data['has_name'] == true
+              ? '/today'
+              : '/name');
     } catch (e) {
       setState(() => _error = errorText(e));
     } finally {

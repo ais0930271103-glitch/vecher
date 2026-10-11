@@ -8,13 +8,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .db import get_session
-from .models import Pair, PairMember, User
+from .consent import CONSENT_KINDS, CONSENT_VERSION
+from .models import Consent, Pair, PairMember, User
 from .security import current_user
 
 
 def today_date() -> date:
     """«Сегодня» в часовом поясе проекта. В тестах подменяется через dependency_overrides."""
     return datetime.now(ZoneInfo(get_settings().timezone)).date()
+
+
+async def has_consent(session: AsyncSession, user_id: str) -> bool:
+    kinds = (await session.execute(
+        select(Consent.kind).where(Consent.user_id == user_id, Consent.version == CONSENT_VERSION)
+    )).scalars().all()
+    return set(CONSENT_KINDS) <= set(kinds)
+
+
+async def consented_user(
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    """Без согласия на обработку данных (152-ФЗ) личные данные пары не принимаем и не показываем."""
+    if not await has_consent(session, user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Нужно согласие на обработку данных — открой приложение заново")
+    return user
 
 
 @dataclass
@@ -25,7 +43,7 @@ class PairContext:
 
 
 async def active_pair(
-    user: User = Depends(current_user),
+    user: User = Depends(consented_user),
     session: AsyncSession = Depends(get_session),
 ) -> PairContext:
     member = (await session.execute(

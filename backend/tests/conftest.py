@@ -31,11 +31,18 @@ async def client():
         yield c
 
 
-async def login(client: AsyncClient, email: str) -> dict:
+async def login(client: AsyncClient, email: str, consent: bool = True) -> dict:
+    """Вход по коду. consent=True — сразу даём согласие на обработку данных, как в приложении."""
     code = (await client.post("/auth/request-code", json={"email": email})).json()["dev_code"]
     r = await client.post("/auth/verify", json={"email": email, "code": code})
     assert r.status_code == 200, r.text
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    if consent:
+        from app.consent import CONSENT_VERSION
+        c = await client.post("/auth/consent", headers=headers,
+                              json={"version": CONSENT_VERSION, "personal": True, "special": True})
+        assert c.status_code == 200, c.text
+    return headers
 
 
 async def make_pair(client: AsyncClient, a: str = "maxim@example.ru", b: str = "anya@example.ru"):

@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_session
-from ..models import LoginCode, User
+from ..consent import CONSENT_KINDS, CONSENT_VERSION
+from ..deps import has_consent
+from ..erase import erase_user
+from ..models import Consent, LoginCode, PairMember, User
+from ..push import notify
 from ..security import create_token, current_user, hash_otp, new_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -29,6 +33,7 @@ class TokenOut(BaseModel):
     user_id: str
     is_new: bool
     has_name: bool  # false — приложение сразу спросит имя
+    has_consent: bool  # false — сначала экран согласия на обработку данных
 
 
 class NameIn(BaseModel):
@@ -39,6 +44,14 @@ class MeOut(BaseModel):
     id: str
     email: str
     display_name: str | None
+    consent_ok: bool = True
+    consent_version: str = CONSENT_VERSION
+
+
+class ConsentIn(BaseModel):
+    version: str
+    personal: bool
+    special: bool
 
 
 @router.post("/request-code")
@@ -107,12 +120,53 @@ async def verify(body: CodeVerify, session: AsyncSession = Depends(get_session))
         session.add(user)
     await session.commit()
     return TokenOut(access_token=create_token(user.id), user_id=user.id, is_new=is_new,
-                    has_name=bool(user.display_name))
+                    has_name=bool(user.display_name), has_consent=await has_consent(session, user.id))
 
 
 @router.get("/me", response_model=MeOut)
-async def me(user: User = Depends(current_user)) -> MeOut:
-    return MeOut(id=user.id, email=user.email, display_name=user.display_name)
+async def me(user: User = Depends(current_user), session: AsyncSession = Depends(get_session)) -> MeOut:
+    return MeOut(id=user.id, email=user.email, display_name=user.display_name,
+                 consent_ok=await has_consent(session, user.id))
+
+
+@router.post("/consent", response_model=MeOut)
+async def give_consent(body: ConsentIn, user: User = Depends(current_user),
+                       session: AsyncSession = Depends(get_session)) -> MeOut:
+    """Два согласия: на обработку данных и отдельно — на сведения об интимной жизни и здоровье."""
+    if body.version != CONSENT_VERSION:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Текст согласия обновился — обнови приложение")
+    if not (body.personal and body.special):
+        raise HTTPException(422, "Без обоих согласий «Вечер» не сможет работать")
+    have = set((await session.execute(
+        select(Consent.kind).where(Consent.user_id == user.id, Consent.version == CONSENT_VERSION)
+    )).scalars().all())
+    for kind in CONSENT_KINDS:
+        if kind not in have:
+            session.add(Consent(user_id=user.id, kind=kind, version=CONSENT_VERSION))
+    await session.commit()
+    return MeOut(id=user.id, email=user.email, display_name=user.display_name, consent_ok=True)
+
+
+@router.delete("/me")
+async def delete_account(user: User = Depends(current_user), session: AsyncSession = Depends(get_session)) -> dict:
+    """Удалить аккаунт и все данные: свои и общие с партнёром. Отменить нельзя.
+
+    Отзыв согласия на обработку данных = удаление аккаунта.
+    """
+    partner_id = (await session.execute(
+        select(PairMember.user_id).where(
+            PairMember.pair_id == select(PairMember.pair_id).where(PairMember.user_id == user.id).scalar_subquery(),
+            PairMember.user_id != user.id,
+        )
+    )).scalar_one_or_none()
+    name, uid = user.display_name or "Партнёр", user.id
+    await erase_user(session, user)
+    await session.commit()
+    log.info("Account deleted: %s", uid)
+    if partner_id:
+        await notify(session, partner_id, "Вечер", f"{name} удалил(а) аккаунт — ваша пара в «Вечере» завершена",
+                     {"open": "today"}, force=True)
+    return {"deleted": True}
 
 
 @router.put("/me", response_model=MeOut)
@@ -124,4 +178,5 @@ async def set_my_name(body: NameIn, user: User = Depends(current_user),
         raise HTTPException(422, "Введи имя")
     user.display_name = name
     await session.commit()
-    return MeOut(id=user.id, email=user.email, display_name=user.display_name)
+    return MeOut(id=user.id, email=user.email, display_name=user.display_name,
+                 consent_ok=await has_consent(session, user.id))

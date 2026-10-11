@@ -16,7 +16,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
-from .models import DeviceToken, PushLog, User
+from .models import DeviceToken, PairMember, PairPause, PushLog, User, UserSettings
 
 log = logging.getLogger("vecher.push")
 
@@ -126,18 +126,38 @@ def local_when(dt: datetime) -> str:
     return d.strftime("%d.%m в %H:%M")
 
 
+PRIVATE_BODY = "Есть что-то новое для тебя"
+
+
+async def is_paused(session: AsyncSession, user_id: str) -> bool:
+    return (await session.execute(
+        select(PairPause.id).join(PairMember, PairMember.pair_id == PairPause.pair_id)
+        .where(PairMember.user_id == user_id)
+    )).first() is not None
+
+
 async def notify(session: AsyncSession, user_id: str, title: str, body: str,
-                 data: dict | None = None, key: str | None = None) -> bool:
+                 data: dict | None = None, key: str | None = None, force: bool = False) -> bool:
     """Отправить уведомление человеку на все его устройства.
 
     key — защита от повторов: событие с тем же ключом второй раз не отправится.
-    Возвращает False, если уведомление уже отправлялось.
+    force — отправить и на паузе (сообщения о самой паузе, завершении пары).
+    Учитывает настройки: уведомления выключены — не шлём; «без текста» — нейтральный текст.
+    Возвращает False, если уведомление не отправлялось.
     """
     if key is not None:
         if (await session.execute(select(PushLog.id).where(PushLog.key == key))).scalar_one_or_none():
             return False
         session.add(PushLog(key=key))
         await session.commit()
+
+    prefs = await session.get(UserSettings, user_id)
+    if prefs is not None and not prefs.push_enabled:
+        return False
+    if not force and await is_paused(session, user_id):
+        return False
+    if prefs is not None and prefs.push_private:
+        title, body = "Вечер", PRIVATE_BODY
 
     data = data or {}
     outbox.append((user_id, title, body, data))

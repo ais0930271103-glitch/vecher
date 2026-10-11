@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
-import '../../core/push.dart';
+import '../../core/privacy.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../us/us_screen.dart';
@@ -32,8 +32,7 @@ class TodayScreen extends ConsumerWidget {
             tooltip: 'Выйти',
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              await stopPush(ref.read(dioProvider));
-              await clearToken();
+              await signOut(ref.read(dioProvider));
               if (context.mounted) context.go('/welcome');
             },
           ),
@@ -60,7 +59,13 @@ class TodayScreen extends ConsumerWidget {
               data: (p) {
                 if (p == null) return const _NoPair();
                 if (p['status'] == 'pending') return _Waiting(code: p['invite_code'] as String?);
-                return PairedToday(partnerName: p['partner_name'] as String?);
+                final today = PairedToday(partnerName: p['partner_name'] as String?);
+                if (p['paused'] != true) return today;
+                return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _PauseBanner(byMe: p['paused_by_me'] == true, partnerName: p['partner_name'] as String?),
+                  const SizedBox(height: 16),
+                  today,
+                ]);
               },
             ),
           ]),
@@ -221,5 +226,46 @@ class _Waiting extends StatelessWidget {
       const Text('Потяни вниз, чтобы обновить.',
           textAlign: TextAlign.center, style: TextStyle(color: VColors.muted, fontSize: 13)),
     ]);
+  }
+}
+
+/// «Вечер» на паузе: уведомления друг другу не приходят, всё остальное работает.
+class _PauseBanner extends ConsumerWidget {
+  const _PauseBanner({required this.byMe, this.partnerName});
+  final bool byMe;
+  final String? partnerName;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
+      decoration: cardBox(gold: true),
+      child: Row(children: [
+        const Icon(Icons.pause_circle_outline, color: VColors.gold),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            byMe
+                ? 'Ты поставил(а) паузу. Уведомления друг другу не приходят.'
+                : '${partnerName ?? 'Партнёр'} взял(а) паузу. Всё сохранится — дайте друг другу время.',
+            style: const TextStyle(color: VColors.soft, fontSize: 14),
+          ),
+        ),
+        if (byMe)
+          TextButton(
+            onPressed: () async {
+              try {
+                await ref.read(dioProvider).post('/pairs/pause', data: {'on': false});
+                ref.invalidate(pairProvider);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
+                }
+              }
+            },
+            child: const Text('Снять', style: TextStyle(color: VColors.gold)),
+          ),
+      ]),
+    );
   }
 }
