@@ -83,8 +83,7 @@ async def _matches(session: AsyncSession, ctx: PairContext) -> list[tuple[WishCa
         .join(mine, (mine.card_id == WishCard.id) & (mine.pair_id == ctx.pair.id) & (mine.user_id == ctx.user.id))
         .join(theirs, (theirs.card_id == WishCard.id) & (theirs.pair_id == ctx.pair.id)
               & (theirs.user_id == ctx.partner_id))
-        .where(mine.choice.in_(POSITIVE), theirs.choice.in_(POSITIVE))
-    )).all()
+    )).all()  # выбор зашифрован — фильтруем «да/может быть» уже здесь, в match_kind
     out = []
     for card, a, b, ta, tb in rows:
         kind = match_kind(a, b)

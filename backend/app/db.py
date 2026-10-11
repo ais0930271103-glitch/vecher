@@ -47,3 +47,5 @@ async def create_all() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+        from .crypto import encrypt_existing
+        await conn.run_sync(encrypt_existing)

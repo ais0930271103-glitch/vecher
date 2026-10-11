@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Часовой пояс, по которому считается «сегодня» (вопрос дня, огонёк).
     timezone: str = "Europe/Moscow"
     radar_daily_limit: int = 30
+    # Ключи шифрования личных данных в базе: "k1:<base64 32 байта>[,k0:<старый>]". В dev можно не задавать.
+    data_keys: str = ""
     # Адрес сайта для ссылок-приглашений: <public_url>/i/<код>
     public_url: str = "https://вечер.online"
     free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки

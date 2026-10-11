@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
+from .crypto import Encrypted
 from .db import Base
 
 
@@ -80,7 +81,7 @@ class DailyAnswer(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     day: Mapped[date] = mapped_column(Date)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"))
-    text: Mapped[str] = mapped_column(String(500))
+    text: Mapped[str] = mapped_column(Encrypted())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -133,7 +134,7 @@ class WishSwipe(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
-    choice: Mapped[str] = mapped_column(String(8))  # yes | maybe | no
+    choice: Mapped[str] = mapped_column(Encrypted())  # yes | maybe | no — зашифровано
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -202,7 +203,7 @@ class ProfileFact(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     key: Mapped[str] = mapped_column(String(32))
-    value: Mapped[str] = mapped_column(String(300))
+    value: Mapped[str] = mapped_column(Encrypted())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -214,7 +215,7 @@ class PartnerNote(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     author_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    text: Mapped[str] = mapped_column(String(500))
+    text: Mapped[str] = mapped_column(Encrypted())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -258,7 +259,7 @@ class Letter(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    text: Mapped[str] = mapped_column(String(2000))
+    text: Mapped[str] = mapped_column(Encrypted())
     deliver_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -271,7 +272,7 @@ class QuietWish(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    text: Mapped[str] = mapped_column(String(300))
+    text: Mapped[str] = mapped_column(Encrypted())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -283,8 +284,8 @@ class Surprise(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(120))
-    note: Mapped[str | None] = mapped_column(String(500))
+    title: Mapped[str] = mapped_column(Encrypted())
+    note: Mapped[str | None] = mapped_column(Encrypted())
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -360,7 +361,7 @@ class DailyMood(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     day: Mapped[date] = mapped_column(Date)
-    kind: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(Encrypted())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -374,7 +375,7 @@ class PairLevel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    level: Mapped[str] = mapped_column(String(8), default="warm")
+    level: Mapped[str] = mapped_column(Encrypted(), default="warm")
 
 
 class Invite(Base):
@@ -386,7 +387,7 @@ class Invite(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(80))
-    note: Mapped[str | None] = mapped_column(String(300))
+    note: Mapped[str | None] = mapped_column(Encrypted())
     at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | yes | later | not_today | cancelled
     proposed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # «давай в другой день»
