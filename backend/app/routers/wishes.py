@@ -11,10 +11,10 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from ..content.wishes import CARDS, DECKS
+from ..content.wishes import ALL_CARDS, APP_MAX_LEVEL, DECKS, LEVELS
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date, special_pair
-from ..models import PlanUnlock, WishCard, WishSwipe, WishView, utcnow
+from ..models import PairLevel, PlanUnlock, WishCard, WishSwipe, WishView, utcnow
 from ..push import notify
 from .today import mark_activity
 
@@ -32,9 +32,40 @@ def _aware(dt: datetime) -> datetime:
 
 
 async def ensure_cards(session: AsyncSession) -> None:
-    if (await session.execute(select(func.count(WishCard.id)))).scalar_one() == 0:
-        session.add_all(WishCard(deck=d, text=t) for d, t in CARDS)
+    """Сверяет карточки в базе с app/content/wishes.py: добавляет новые, обновляет уровень."""
+    existing = {(c.deck, c.text): c for c in (await session.execute(select(WishCard))).scalars()}
+    changed = False
+    for deck, text, level in ALL_CARDS:
+        card = existing.get((deck, text))
+        if card is None:
+            session.add(WishCard(deck=deck, text=text, level=level))
+            changed = True
+        elif card.level != level:
+            card.level = level
+            changed = True
+    if changed:
         await session.flush()
+
+
+LEVEL_INDEX = {lvl: i for i, lvl in enumerate(LEVELS)}
+
+
+async def _levels(session: AsyncSession, ctx: PairContext) -> tuple[str, str]:
+    """(мой уровень, уровень партнёра); по умолчанию — «Тепло»."""
+    rows = dict((await session.execute(
+        select(PairLevel.user_id, PairLevel.level).where(PairLevel.pair_id == ctx.pair.id)
+    )).all())
+    return rows.get(ctx.user.id, "warm"), rows.get(ctx.partner_id, "warm")
+
+
+def _effective(mine: str, theirs: str) -> str:
+    return LEVELS[min(LEVEL_INDEX[mine], LEVEL_INDEX[theirs])]
+
+
+def _allowed(effective: str) -> tuple[str, ...]:
+    """Уровни карточек, которые показываем в «Вечере» (выше APP_MAX_LEVEL — только «Вечер. Ночь»)."""
+    cap = min(LEVEL_INDEX[effective], LEVEL_INDEX[APP_MAX_LEVEL])
+    return LEVELS[: cap + 1]
 
 
 def match_kind(a: str, b: str) -> str | None:
@@ -92,18 +123,31 @@ class DeckOut(BaseModel):
     subtitle: str
     total: int
     done: int
+    locked: int = 0  # карточки посмелее, которые откроются на следующем уровне
+
+
+class LevelOut(BaseModel):
+    mine: str        # что выбрал я
+    effective: str   # что открыто паре: меньший из двух выборов (выбор партнёра отдельно не раскрываем)
+    night_open: bool  # оба выбрали «Жарко» — можно предложить «Вечер. Ночь»
+
+
+class LevelIn(BaseModel):
+    level: str
 
 
 class DecksOut(BaseModel):
     decks: list[DeckOut]
     matches: int
     new_matches: int
+    level: LevelOut | None = None
 
 
 class CardOut(BaseModel):
     id: int
     deck: str
     text: str
+    level: str = "warm"
 
 
 class SwipeIn(BaseModel):
@@ -139,26 +183,63 @@ def _match_out(card: WishCard, kind: str, at: datetime, seen: datetime | None = 
 @router.get("/decks", response_model=DecksOut)
 async def decks(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)) -> DecksOut:
     await ensure_cards(session)
+    mine, theirs = await _levels(session, ctx)
+    effective = _effective(mine, theirs)
+    allowed = _allowed(effective)
+    in_app = LEVELS[: LEVEL_INDEX[APP_MAX_LEVEL] + 1]
     rows = (await session.execute(
-        select(WishCard.deck, func.count(WishCard.id), func.count(WishSwipe.id))
+        select(WishCard.deck, WishCard.level, func.count(WishCard.id), func.count(WishSwipe.id))
         .outerjoin(WishSwipe, (WishSwipe.card_id == WishCard.id) & (WishSwipe.pair_id == ctx.pair.id)
                    & (WishSwipe.user_id == ctx.user.id))
-        .where(WishCard.active.is_(True))
-        .group_by(WishCard.deck)
+        .where(WishCard.active.is_(True), WishCard.level.in_(in_app))
+        .group_by(WishCard.deck, WishCard.level)
     )).all()
-    counts = {d: (total, done) for d, total, done in rows}
+    counts: dict[str, list[int]] = {}
+    for d, level, total, done in rows:
+        c = counts.setdefault(d, [0, 0, 0])
+        if level in allowed:
+            c[0] += total
+            c[1] += done
+        else:
+            c[2] += total
     matches = await _matches(session, ctx)
     seen = await _seen_at(session, ctx)
     await session.commit()
     return DecksOut(
         decks=[
             DeckOut(id=d, title=meta["title"], subtitle=meta["subtitle"],
-                    total=counts.get(d, (0, 0))[0], done=counts.get(d, (0, 0))[1])
+                    total=counts.get(d, [0, 0, 0])[0], done=counts.get(d, [0, 0, 0])[1],
+                    locked=counts.get(d, [0, 0, 0])[2])
             for d, meta in sorted(DECKS.items(), key=lambda kv: kv[1]["order"])
         ],
         matches=len(matches),
         new_matches=sum(1 for _, _, at in matches if seen is None or at > seen),
+        level=LevelOut(mine=mine, effective=effective, night_open=effective == "hot"),
     )
+
+
+@router.put("/level", response_model=LevelOut)
+async def set_level(body: LevelIn, ctx: PairContext = Depends(special_pair),
+                    session: AsyncSession = Depends(get_session)) -> LevelOut:
+    """Мой уровень смелости. Партнёр не видит мой выбор — паре открывается меньший из двух."""
+    if body.level not in LEVELS:
+        raise HTTPException(422, "Уровень: warm, spicy или hot")
+    row = (await session.execute(
+        select(PairLevel).where(PairLevel.pair_id == ctx.pair.id, PairLevel.user_id == ctx.user.id)
+    )).scalar_one_or_none()
+    if row is None:
+        session.add(PairLevel(pair_id=ctx.pair.id, user_id=ctx.user.id, level=body.level))
+    else:
+        row.level = body.level
+    await session.commit()
+    mine, theirs = await _levels(session, ctx)
+    effective = _effective(mine, theirs)
+    if effective == "hot":
+        # Оба готовы к «Ночи» — сообщаем обоим один раз, без подробностей на экране блокировки.
+        for uid in (ctx.user.id, ctx.partner_id):
+            await notify(session, uid, "Вечер", "В «Вечере» открылось кое-что новое для вас двоих",
+                         {"open": "wishes"}, key=f"night:{ctx.pair.id}:{uid}")
+    return LevelOut(mine=mine, effective=effective, night_open=effective == "hot")
 
 
 @router.get("/decks/{deck}/next", response_model=list[CardOut])
@@ -173,18 +254,20 @@ async def next_cards(
     if deck not in DECKS:
         raise HTTPException(404, "Такой колоды нет")
     await ensure_cards(session)
+    allowed = _allowed(_effective(*await _levels(session, ctx)))
     my_done = select(WishSwipe.card_id).where(WishSwipe.pair_id == ctx.pair.id, WishSwipe.user_id == ctx.user.id)
     partner_done = select(WishSwipe.card_id).where(
         WishSwipe.pair_id == ctx.pair.id, WishSwipe.user_id == ctx.partner_id
     )
     cards = (await session.execute(
         select(WishCard)
-        .where(WishCard.deck == deck, WishCard.active.is_(True), WishCard.id.not_in(my_done))
+        .where(WishCard.deck == deck, WishCard.active.is_(True), WishCard.level.in_(allowed),
+               WishCard.id.not_in(my_done))
         .order_by(case((WishCard.id.in_(partner_done), 0), else_=1), WishCard.id)
         .limit(limit)
     )).scalars().all()
     await session.commit()
-    return [CardOut(id=c.id, deck=c.deck, text=c.text) for c in cards]
+    return [CardOut(id=c.id, deck=c.deck, text=c.text, level=c.level) for c in cards]
 
 
 @router.post("/swipe", response_model=SwipeOut)
@@ -199,6 +282,8 @@ async def swipe(
     card = await session.get(WishCard, body.card_id)
     if card is None or not card.active:
         raise HTTPException(404, "Карточка не найдена")
+    if card.level not in _allowed(_effective(*await _levels(session, ctx))):
+        raise HTTPException(403, "Эта карточка откроется на другом уровне")
 
     now = utcnow()
     mine = (await session.execute(

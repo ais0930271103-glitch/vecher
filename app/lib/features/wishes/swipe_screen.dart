@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/api.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
+import 'wishes_screen.dart' show LevelBadge;
 
 /// Свайпер колоды: вправо — «да», влево — «нет», вверх — «может быть».
 class SwipeScreen extends ConsumerStatefulWidget {
@@ -255,6 +256,7 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
               angle: angle,
               child: _CardFace(
                 text: _cards[0]['text'] as String,
+                level: _cards[0]['level'] as String? ?? 'warm',
                 deckTitle: widget.title,
                 hint: hint,
                 drag: _hint(),
@@ -283,8 +285,9 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
 }
 
 class _CardFace extends StatelessWidget {
-  const _CardFace({required this.text, required this.deckTitle, required this.hint, this.drag});
+  const _CardFace({required this.text, required this.deckTitle, required this.hint, this.drag, this.level = 'warm'});
   final String text;
+  final String level;
   final String deckTitle;
   final String hint;
   final (String, Color, double)? drag;
@@ -309,6 +312,8 @@ class _CardFace extends StatelessWidget {
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             _Tag(deckTitle, gold: true),
+            const SizedBox(width: 8),
+            LevelBadge(level: level),
           ]),
           Expanded(
             child: Align(

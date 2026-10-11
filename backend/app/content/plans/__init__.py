@@ -9,9 +9,10 @@ from ._types import Plan
 from .dates import PLANS as _dates
 from .home import PLANS as _home
 from .romance import PLANS as _romance
+from .spicy import PLANS as _spicy
 from .travel import PLANS as _travel
 
-PLANS: dict[str, Plan] = {**_dates, **_home, **_travel, **_romance}
+PLANS: dict[str, Plan] = {**_dates, **_home, **_travel, **_romance, **_spicy}
 
 
 def plan_for(card_text: str) -> Plan | None:

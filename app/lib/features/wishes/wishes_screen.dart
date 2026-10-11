@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../auth/consent_screen.dart';
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 
 /// Колоды и счётчик совпадений: GET /wishes/decks.
 final decksProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -45,7 +46,9 @@ class WishesScreen extends ConsumerWidget {
                 text: 'Твои ответы видишь только ты, а партнёр — лишь совпадения. '
                     'Чтобы сохранять их, нужно твоё согласие.',
               )
-            else
+            else ...[
+              if (decks.valueOrNull?['level'] != null)
+                _LevelPicker(level: Map<String, dynamic>.from(decks.valueOrNull!['level'] as Map)),
               decks.when(
               loading: () => const Padding(
                 padding: EdgeInsets.only(top: 60),
@@ -64,6 +67,7 @@ class WishesScreen extends ConsumerWidget {
                 ]);
               },
             ),
+            ],
           ]),
         ),
       ),
@@ -170,11 +174,170 @@ class _DeckTile extends ConsumerWidget {
               ]),
             ),
             const SizedBox(width: 12),
-            Text(finished ? 'Готово' : '$done/$total',
-                style: TextStyle(color: finished ? VColors.gold : VColors.soft, fontSize: 13)),
+            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(finished ? 'Готово' : '$done/$total',
+                  style: TextStyle(color: finished ? VColors.gold : VColors.soft, fontSize: 13)),
+              if ((deck['locked'] as int? ?? 0) > 0) ...[
+                const SizedBox(height: 4),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.lock_outline, size: 12, color: VColors.muted),
+                  const SizedBox(width: 3),
+                  Text('+${deck['locked']}', style: const TextStyle(color: VColors.muted, fontSize: 12)),
+                ]),
+              ],
+            ]),
           ]),
         ),
       ),
+    );
+  }
+}
+
+// ---------- Уровни «Тепло · Остро · Жарко» ----------
+
+const levelTitles = {'warm': 'Тепло', 'spicy': 'Остро', 'hot': 'Жарко'};
+const _levelFlames = {'warm': 1, 'spicy': 2, 'hot': 3};
+const _levelColors = {
+  'warm': (VColors.goldText, Color(0xFF2E2A26)),
+  'spicy': (VColors.coral, Color(0xFF3A2430)),
+  'hot': (Color(0xFFF09595), Color(0xFF43202A)),
+};
+
+/// Значок уровня: огоньки и название (на карточке в свайпере).
+class LevelBadge extends StatelessWidget {
+  const LevelBadge({super.key, required this.level});
+  final String level;
+
+  @override
+  Widget build(BuildContext context) {
+    final (fg, bg) = _levelColors[level] ?? _levelColors['warm']!;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        for (var i = 0; i < (_levelFlames[level] ?? 1); i++)
+          Icon(Icons.local_fire_department, size: 13, color: fg),
+        const SizedBox(width: 4),
+        Text(levelTitles[level] ?? '', style: TextStyle(fontSize: 12, color: fg)),
+      ]),
+    );
+  }
+}
+
+/// «Мой уровень»: каждый выбирает сам, паре открывается меньший из двух.
+/// Чей выбор осторожнее — не показываем: формулировки нейтральные, без давления.
+class _LevelPicker extends ConsumerStatefulWidget {
+  const _LevelPicker({required this.level});
+  final Map<String, dynamic> level;
+
+  @override
+  ConsumerState<_LevelPicker> createState() => _LevelPickerState();
+}
+
+class _LevelPickerState extends ConsumerState<_LevelPicker> {
+  String? _pending;
+
+  Future<void> _set(String level) async {
+    if (_pending != null || level == widget.level['mine']) return;
+    setState(() => _pending = level);
+    try {
+      await ref.read(dioProvider).put('/wishes/level', data: {'level': level});
+      ref.invalidate(decksProvider);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
+    } finally {
+      if (mounted) setState(() => _pending = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mine = _pending ?? widget.level['mine'] as String;
+    final effective = widget.level['effective'] as String;
+    final nightOpen = widget.level['night_open'] == true;
+    final shown = effective == 'hot' ? 'spicy' : effective; // «Жарко» в «Вечере» — это «Ночь»
+    String note;
+    if (nightOpen) {
+      note = 'Вам открыто всё в «Вечере» — и режим «Ночь» для вас двоих.';
+    } else if (mine == 'hot' && effective == 'spicy') {
+      note = 'Вам открыто: «Остро». «Ночь» предложим, когда вы оба будете готовы.';
+    } else if ((_levelFlames[mine] ?? 1) > (_levelFlames[effective] ?? 1)) {
+      note = 'Вам открыто: «${levelTitles[shown]}». Карточки посмелее откроются, когда вы оба будете готовы.';
+    } else {
+      note = 'Вам открыто: «${levelTitles[shown]}». Уровень можно поменять в любой момент.';
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const SectionLabel('Мой уровень', color: VColors.label),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(color: VColors.card, borderRadius: BorderRadius.circular(20)),
+          child: Row(children: [
+            for (final l in const ['warm', 'spicy', 'hot'])
+              Expanded(
+                child: Material(
+                  color: l == mine ? VColors.segment : Colors.transparent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: l == mine ? VColors.gold : Colors.transparent),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () => _set(l),
+                    child: SizedBox(
+                      height: 52,
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          for (var i = 0; i < _levelFlames[l]!; i++)
+                            Icon(Icons.local_fire_department, size: 14,
+                                color: l == mine ? VColors.gold : VColors.navInactive),
+                        ]),
+                        const SizedBox(height: 2),
+                        Text(levelTitles[l]!,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: l == mine ? FontWeight.w600 : FontWeight.w400,
+                              color: l == mine ? VColors.goldText : VColors.link,
+                            )),
+                      ]),
+                    ),
+                  ),
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(height: 8),
+        Text(note, style: const TextStyle(color: VColors.muted, fontSize: 13, height: 1.4)),
+        if (mine == 'hot' && !nightOpen) ...[
+          const SizedBox(height: 4),
+          const Text('«Жарко» — это отдельное приложение «Вечер. Ночь» только для вас двоих.',
+              style: TextStyle(color: VColors.muted, fontSize: 13, height: 1.4)),
+        ],
+        if (nightOpen) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: glowBox(radius: 20),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Icon(Icons.nightlight_round, color: VColors.gold),
+                const SizedBox(width: 8),
+                Text('Вечер. Ночь', style: display(20)),
+              ]),
+              const SizedBox(height: 8),
+              const Text(
+                'Вы оба выбрали «Жарко». Самые откровенные карточки и игры — в отдельном приложении, '
+                'только для вас двоих и только 18+.',
+                style: TextStyle(color: VColors.soft, fontSize: 14, height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              const GoldButton(height: 46, onPressed: null, child: Text('Скоро')),
+            ]),
+          ),
+        ],
+      ]),
     );
   }
 }

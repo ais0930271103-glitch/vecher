@@ -119,6 +119,7 @@ class WishCard(Base):
     deck: Mapped[str] = mapped_column(String(24), index=True)
     text: Mapped[str] = mapped_column(String(200))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    level: Mapped[str] = mapped_column(String(8), default="warm", server_default="warm")  # warm | spicy | hot
 
 
 class WishSwipe(Base):
@@ -361,3 +362,16 @@ class DailyMood(Base):
     day: Mapped[date] = mapped_column(Date)
     kind: Mapped[str] = mapped_column(String(16))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PairLevel(Base):
+    """Уровень смелости карточек, который выбрал человек. Паре открыт меньший из двух.
+    Свой выбор партнёру не показывается."""
+
+    __tablename__ = "pair_levels"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", name="uq_pair_level"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    level: Mapped[str] = mapped_column(String(8), default="warm")

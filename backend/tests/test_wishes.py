@@ -104,3 +104,40 @@ async def test_swipe_counts_for_streak(client):
     await client.post("/wishes/swipe", headers=hb, json={"card_id": card["id"], "choice": "no"})
     t = (await client.get("/today", headers=ha)).json()
     assert (t["streak"], t["today_complete"]) == (1, True)
+
+
+async def test_levels_by_more_careful_partner(client):
+    from app import push
+    from app.content.wishes import SPICY_CARDS
+    push.outbox.clear()
+    ha, hb = await make_pair(client)
+    d = (await client.get("/wishes/decks", headers=ha)).json()
+    assert d["level"] == {"mine": "warm", "effective": "warm", "night_open": False}
+    romance = next(x for x in d["decks"] if x["id"] == "romance")
+    assert romance["total"] == 15 and romance["locked"] == sum(1 for dk, _ in SPICY_CARDS if dk == "romance")
+    spicy_text = next(t for dk, t in SPICY_CARDS if dk == "romance")
+    texts = {c["text"] for c in (await client.get("/wishes/decks/romance/next?limit=50", headers=ha)).json()}
+    assert spicy_text not in texts
+
+    # Я выбрал «Остро», партнёр — нет: паре всё ещё «Тепло», и выбор партнёра мне не раскрывается.
+    assert (await client.put("/wishes/level", headers=ha, json={"level": "wild"})).status_code == 422
+    r = (await client.put("/wishes/level", headers=ha, json={"level": "spicy"})).json()
+    assert r == {"mine": "spicy", "effective": "warm", "night_open": False}
+    assert (await client.get("/wishes/decks", headers=hb)).json()["level"]["mine"] == "warm"
+
+    await client.put("/wishes/level", headers=hb, json={"level": "spicy"})
+    cards = (await client.get("/wishes/decks/romance/next?limit=50", headers=ha)).json()
+    spicy = next(c for c in cards if c["text"] == spicy_text)
+    assert (await client.get("/wishes/decks", headers=ha)).json()["level"]["effective"] == "spicy"
+
+    # Партнёр вернулся на «Тепло» — острые карточки снова скрыты, свайпнуть их нельзя.
+    await client.put("/wishes/level", headers=hb, json={"level": "warm"})
+    assert (await client.post("/wishes/swipe", headers=ha, json={"card_id": spicy["id"], "choice": "yes"})).status_code == 403
+
+    # «Жарко» у обоих: в «Вечере» карточек «Жарко» нет — только предложение «Вечер. Ночь».
+    await client.put("/wishes/level", headers=ha, json={"level": "hot"})
+    r = (await client.put("/wishes/level", headers=hb, json={"level": "hot"})).json()
+    assert r["effective"] == "hot" and r["night_open"] is True
+    d = (await client.get("/wishes/decks", headers=ha)).json()
+    assert all(x["locked"] == 0 for x in d["decks"])  # «Остро» открыто целиком, «Жарко» здесь не считается
+    assert sum(1 for _, _, body, _ in push.outbox if "открылось кое-что новое" in body) == 2
