@@ -111,7 +111,7 @@ class _StreakChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: const Color(0xFF2B2329),
+          color: const Color(0xFF241F3F),
           border: Border.all(color: const Color(0x4DF3C98B)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -136,10 +136,10 @@ class _IncomingRadar extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Material(
-        color: const Color(0x1FC79BB2),
+        color: const Color(0x1F9B7FE0),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0x4DC79BB2)),
+          side: const BorderSide(color: Color(0x4D9B7FE0)),
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(18),
@@ -155,7 +155,7 @@ class _IncomingRadar extends ConsumerWidget {
               Expanded(
                 child: Text('Партнёр: «${signals.first['label']}»'
                     '${signals.length > 1 ? ' и ещё ${signals.length - 1}' : ''}',
-                    style: const TextStyle(fontSize: 15, color: Color(0xFFF2E3EA))),
+                    style: const TextStyle(fontSize: 15, color: Color(0xFFE4DAFF))),
               ),
               const Text('Ок', style: TextStyle(color: VColors.gold, fontWeight: FontWeight.w700)),
             ]),
@@ -218,7 +218,7 @@ class _QuestionCardState extends ConsumerState<_QuestionCard> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF2E2630), Color(0xFF1E1921)],
+          colors: [Color(0xFF2A2458), Color(0xFF1A1C42)],
         ),
         border: Border.all(color: const Color(0x38F3C98B)),
       ),
@@ -279,7 +279,7 @@ class _Lock extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0x8C16131A),
+        color: const Color(0x8C0E1029),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(children: [
@@ -302,7 +302,7 @@ class _AnswerBubble extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: accent ? const Color(0x24C79BB2) : const Color(0x8C16131A),
+        color: accent ? const Color(0x249B7FE0) : const Color(0x8C0E1029),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -351,7 +351,7 @@ class _RadarRowState extends ConsumerState<_RadarRow> {
           ActionChip(
             label: Text(label),
             onPressed: _sending == null ? () => _send(kind, label) : null,
-            backgroundColor: const Color(0xFF27212A),
+            backgroundColor: const Color(0xFF1B1E44),
             side: const BorderSide(color: Color(0x1FFFFFFF)),
             shape: const StadiumBorder(),
             labelStyle: const TextStyle(color: VColors.text),
@@ -478,7 +478,7 @@ class _InfoChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          color: const Color(0xFF27212A),
+          color: const Color(0xFF1B1E44),
           border: Border.all(color: gold ? const Color(0x80F3C98B) : const Color(0x1FFFFFFF)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [

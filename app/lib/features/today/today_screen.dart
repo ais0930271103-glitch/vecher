@@ -81,7 +81,7 @@ class _Card extends StatelessWidget {
             ? const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFF2E2630), Color(0xFF1E1921)],
+                colors: [Color(0xFF2A2458), Color(0xFF1A1C42)],
               )
             : null,
         border: Border.all(color: highlight ? const Color(0x38F3C98B) : const Color(0x14FFFFFF)),

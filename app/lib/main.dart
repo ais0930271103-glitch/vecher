@@ -58,7 +58,7 @@ class _ErrorPanel extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Container(
-        color: const Color(0xFF16131A),
+        color: const Color(0xFF14163A),
         padding: const EdgeInsets.all(16),
         alignment: Alignment.topLeft,
         child: Text(
