@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "online.vecher.vecher_app",
+    "sha256_cert_fingerprints": ["ЗАМЕНИТЬ:SHA-256 отпечаток ключа подписи (keytool -list -v -keystore ...)"]
+  }
+}]

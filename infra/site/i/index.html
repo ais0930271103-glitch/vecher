@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Приглашение в «Вечер»</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; background: #121220; color: #F4EEE6;
+         font-family: -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; }
+  main { max-width: 380px; padding: 32px 20px; text-align: center; }
+  h1 { font-weight: 400; color: #F6DDB4; font-size: 30px; margin: 16px 0 8px; }
+  p { color: #D8D2DE; line-height: 1.5; }
+  .code { font-size: 30px; letter-spacing: 4px; color: #F6DDB4; font-weight: 700; margin: 6px 0 22px; }
+  .btn { display: block; padding: 16px; border-radius: 28px; text-decoration: none; font-weight: 700; margin: 10px 0; }
+  .gold { background: linear-gradient(90deg, #F3C98B, #E3A55E); color: #1A1433; }
+  .ghost { border: 1px solid rgba(243, 201, 139, .45); color: #F6DDB4; }
+  small { color: #A9A5B5; }
+</style>
+</head>
+<body>
+<main>
+  <div style="font-size:48px">🌙</div>
+  <h1>Тебя пригласили в «Вечер»</h1>
+  <p>Пространство только для вас двоих: вопросы, совпадения желаний, планы и ваши даты.</p>
+  <p><small>Код приглашения</small></p>
+  <div class="code" id="code">—</div>
+  <a class="btn gold" id="open" href="#">Открыть в приложении</a>
+  <a class="btn ghost" href="/">Скачать «Вечер»</a>
+  <p><small>Если приложение уже стоит, но не открылось, введи код на экране «У меня есть код».</small></p>
+</main>
+<script>
+  var code = (location.pathname.split('/i/')[1] || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 16);
+  if (code) {
+    document.getElementById('code').textContent = code.length === 8 ? code.slice(0, 4) + '-' + code.slice(4) : code;
+    document.getElementById('open').href = 'vecher://open/i/' + code;
+  }
+</script>
+</body>
+</html>

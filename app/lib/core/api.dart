@@ -18,6 +18,12 @@ Future<String?> readToken() => secureStorage.read(key: _tokenKey);
 Future<void> saveToken(String token) => secureStorage.write(key: _tokenKey, value: token);
 Future<void> clearToken() => secureStorage.delete(key: _tokenKey);
 
+// Код из ссылки-приглашения (https://вечер.online/i/КОД): помним, пока человек входит и регистрируется.
+const _pendingInviteKey = 'vecher_pending_invite';
+Future<String?> readPendingInvite() => secureStorage.read(key: _pendingInviteKey);
+Future<void> savePendingInvite(String code) => secureStorage.write(key: _pendingInviteKey, value: code);
+Future<void> clearPendingInvite() => secureStorage.delete(key: _pendingInviteKey);
+
 final dioProvider = Provider<Dio>((ref) {
   final dio = Dio(BaseOptions(
     baseUrl: apiUrl,

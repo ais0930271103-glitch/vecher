@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Часовой пояс, по которому считается «сегодня» (вопрос дня, огонёк).
     timezone: str = "Europe/Moscow"
     radar_daily_limit: int = 30
+    # Адрес сайта для ссылок-приглашений: <public_url>/i/<код>
+    public_url: str = "https://вечер.online"
     free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки
     # Push: путь к ключу сервисного аккаунта Firebase (секрет, в git не хранится).
     firebase_credentials: str = "firebase-key.json"

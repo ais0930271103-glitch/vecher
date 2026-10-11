@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import get_settings
 from ..db import get_session
 from ..deps import PairContext, active_pair, consented_user
 from ..erase import erase_pair
@@ -27,6 +28,7 @@ class PairOut(BaseModel):
     pair_id: str
     status: str
     invite_code: str | None
+    invite_url: str | None = None
     partner_id: str | None
     my_name: str | None = None
     partner_name: str | None = None
@@ -43,6 +45,14 @@ class JoinIn(BaseModel):
     code: str
 
 
+class InvitePreview(BaseModel):
+    inviter_name: str | None
+
+
+def _normalize(code: str) -> str:
+    return code.strip().upper().replace("-", "").replace(" ", "")
+
+
 async def _membership(session: AsyncSession, user_id: str) -> PairMember | None:
     return (await session.execute(
         select(PairMember).where(PairMember.user_id == user_id)
@@ -56,7 +66,8 @@ async def _out(session: AsyncSession, pair: Pair, me: str) -> PairOut:
     me_user = await session.get(User, me)
     partner_user = await session.get(User, partner) if partner else None
     pause = (await session.execute(select(PairPause).where(PairPause.pair_id == pair.id))).scalar_one_or_none()
-    return PairOut(pair_id=pair.id, status=pair.status, invite_code=pair.invite_code, partner_id=partner,
+    url = f"{get_settings().public_url.rstrip('/')}/i/{pair.invite_code}" if pair.invite_code else None
+    return PairOut(pair_id=pair.id, status=pair.status, invite_code=pair.invite_code, invite_url=url, partner_id=partner,
                    my_name=me_user.display_name if me_user else None,
                    partner_name=partner_user.display_name if partner_user else None,
                    paused=pause is not None, paused_by_me=bool(pause and pause.by_user_id == me),
@@ -90,7 +101,7 @@ async def create_invite(user: User = Depends(consented_user), session: AsyncSess
 
 @router.post("/join", response_model=PairOut)
 async def join(body: JoinIn, user: User = Depends(consented_user), session: AsyncSession = Depends(get_session)):
-    code = body.code.strip().upper().replace("-", "").replace(" ", "")
+    code = _normalize(body.code)
     pair = (await session.execute(select(Pair).where(Pair.invite_code == code))).scalar_one_or_none()
     if pair is None or pair.status != "pending":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Приглашение не найдено или уже использовано")
@@ -149,3 +160,18 @@ async def leave(user: User = Depends(current_user), session: AsyncSession = Depe
         await notify(session, partner, "Вечер", f"{name} завершил(а) вашу пару в «Вечере»", {"open": "today"},
                      force=True)
     return {"ok": True}
+
+
+@router.get("/invite/{code}", response_model=InvitePreview)
+async def preview_invite(code: str, user: User = Depends(current_user),
+                         session: AsyncSession = Depends(get_session)):
+    """Кто приглашает — для экрана «Аня приглашает тебя» (по ссылке или коду). Только имя."""
+    pair = (await session.execute(select(Pair).where(Pair.invite_code == _normalize(code)))).scalar_one_or_none()
+    if pair is None or pair.status != "pending":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Приглашение не найдено или уже использовано")
+    inviter = (await session.execute(
+        select(User).join(PairMember, PairMember.user_id == User.id).where(PairMember.pair_id == pair.id)
+    )).scalars().first()
+    if inviter is not None and inviter.id == user.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Это твоё собственное приглашение")
+    return InvitePreview(inviter_name=inviter.display_name if inviter else None)

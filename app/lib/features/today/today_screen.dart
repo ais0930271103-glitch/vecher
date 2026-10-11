@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/api.dart';
 import '../../core/privacy.dart';
@@ -60,7 +61,9 @@ class TodayScreen extends ConsumerWidget {
               ),
               data: (p) {
                 if (p == null) return const _NoPair();
-                if (p['status'] == 'pending') return _Waiting(code: p['invite_code'] as String?);
+                if (p['status'] == 'pending') {
+                  return _Waiting(code: p['invite_code'] as String?, url: p['invite_url'] as String?);
+                }
                 final today = PairedToday(partnerName: p['partner_name'] as String?);
                 if (p['paused'] != true) return today;
                 return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -114,6 +117,46 @@ class _NoPairState extends ConsumerState<_NoPair> {
   final _code = TextEditingController();
   bool _busy = false;
   String? _error;
+  String? _linkCode; // пришли по ссылке-приглашению
+  String? _inviter;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLink();
+  }
+
+  Future<void> _checkLink() async {
+    final code = await readPendingInvite();
+    if (code == null) return;
+    try {
+      final r = await ref.read(dioProvider).get('/pairs/invite/$code');
+      if (!mounted) return;
+      setState(() {
+        _linkCode = code;
+        _inviter = (r.data as Map)['inviter_name'] as String?;
+      });
+    } catch (e) {
+      await clearPendingInvite();
+      if (mounted) setState(() => _error = errorText(e));
+    }
+  }
+
+  Future<void> _acceptLink() async {
+    final code = _linkCode!;
+    await _run(() async {
+      await ref.read(dioProvider).post('/pairs/join', data: {'code': code});
+      await clearPendingInvite();
+    });
+  }
+
+  Future<void> _declineLink() async {
+    await clearPendingInvite();
+    setState(() {
+      _linkCode = null;
+      _inviter = null;
+    });
+  }
 
   Future<void> _run(Future<void> Function() action) async {
     setState(() {
@@ -139,6 +182,28 @@ class _NoPairState extends ConsumerState<_NoPair> {
   @override
   Widget build(BuildContext context) {
     final dio = ref.read(dioProvider);
+    if (_linkCode != null) {
+      final name = _inviter ?? 'Партнёр';
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const SizedBox(height: 24),
+        Center(child: Initial(name: _inviter, size: 88)),
+        const SizedBox(height: 18),
+        Text('$name приглашает тебя', textAlign: TextAlign.center, style: display(28)),
+        const SizedBox(height: 10),
+        const Text(
+          '«Вечер» — пространство только для вас двоих: вопросы, совпадения желаний, планы и ваши даты.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: VColors.soft, fontSize: 16, height: 1.4),
+        ),
+        const SizedBox(height: 28),
+        GoldButton(onPressed: _busy ? null : _acceptLink, child: Text(_busy ? 'Соединяем…' : 'Принять приглашение')),
+        TextButton(
+          onPressed: _busy ? null : _declineLink,
+          child: const Text('Не сейчас', style: TextStyle(color: VColors.muted)),
+        ),
+        if (_error != null) Text(_error!, style: const TextStyle(color: Color(0xFFF5A894))),
+      ]);
+    }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Добро пожаловать', style: display(28)),
       const SizedBox(height: 8),
@@ -151,12 +216,12 @@ class _NoPairState extends ConsumerState<_NoPair> {
           const Text('Пригласить партнёра',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          const Text('Получи код и отправь его любым мессенджером.',
+          const Text('Получи ссылку и отправь её любым мессенджером.',
               style: TextStyle(color: VColors.soft)),
           const SizedBox(height: 14),
           GoldButton(
             onPressed: _busy ? null : () => _run(() => dio.post('/pairs/invite')),
-            child: const Text('Получить код'),
+            child: const Text('Получить приглашение'),
           ),
         ]),
       ),
@@ -194,33 +259,54 @@ class _NoPairState extends ConsumerState<_NoPair> {
 }
 
 class _Waiting extends StatelessWidget {
-  const _Waiting({required this.code});
+  const _Waiting({required this.code, this.url});
   final String? code;
+  final String? url;
+
+  String get _pretty => code == null ? '' : '${code!.substring(0, 4)}-${code!.substring(4)}';
+
+  String get _message => [
+        'Присоединяйся ко мне в «Вечере» — это пространство только для нас двоих.',
+        if (url != null) url!,
+        'Если ссылка не откроется, введи в приложении код $_pretty',
+      ].join('\n');
 
   @override
   Widget build(BuildContext context) {
-    final pretty = code == null ? '' : '${code!.substring(0, 4)}-${code!.substring(4)}';
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Text('Ждём партнёра', style: display(28)),
       const SizedBox(height: 8),
-      const Text('Отправь код. Как только партнёр его введёт, «Вечер» откроется для вас двоих.',
+      const Text('Отправь приглашение. Как только партнёр его примет, «Вечер» откроется для вас двоих.',
           style: TextStyle(color: VColors.soft, fontSize: 16)),
       const SizedBox(height: 20),
       _Card(
         highlight: true,
-        child: Column(children: [
-          Text(pretty,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Text('Код приглашения', textAlign: TextAlign.center,
+              style: TextStyle(color: VColors.muted, fontSize: 13)),
+          const SizedBox(height: 6),
+          Text(_pretty,
+              textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 34, letterSpacing: 4, fontWeight: FontWeight.w700,
                   color: VColors.goldText)),
-          const SizedBox(height: 14),
-          FilledButton.icon(
+          const SizedBox(height: 16),
+          GoldButton(
+            onPressed: () => Share.share(_message, subject: 'Приглашение в «Вечер»'),
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.ios_share, size: 20),
+              SizedBox(width: 8),
+              Text('Отправить приглашение'),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: 'Присоединяйся ко мне в «Вечере»: код $pretty'));
+              Clipboard.setData(ClipboardData(text: _message));
               ScaffoldMessenger.of(context)
                   .showSnackBar(const SnackBar(content: Text('Скопировано — отправь партнёру')));
             },
-            icon: const Icon(Icons.copy),
-            label: const Text('Скопировать приглашение'),
+            icon: const Icon(Icons.copy, size: 18, color: VColors.muted),
+            label: const Text('Скопировать', style: TextStyle(color: VColors.muted)),
           ),
         ]),
       ),

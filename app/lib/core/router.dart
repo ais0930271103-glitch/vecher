@@ -34,6 +34,8 @@ final router = GoRouter(
     GoRoute(path: '/login', builder: (_, __) => const EmailScreen()),
     GoRoute(path: '/name', builder: (_, __) => const NameScreen()),
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
+    // Ссылка-приглашение: запоминаем код и идём обычным путём (вход → согласие → имя → «Сегодня»).
+    GoRoute(path: '/i/:code', builder: (_, state) => _InviteLink(code: state.pathParameters['code']!)),
     GoRoute(
       path: '/code',
       builder: (_, state) => CodeScreen(email: state.extra as String? ?? ''),
@@ -160,4 +162,25 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
       ),
     );
   }
+}
+
+class _InviteLink extends StatefulWidget {
+  const _InviteLink({required this.code});
+  final String code;
+
+  @override
+  State<_InviteLink> createState() => _InviteLinkState();
+}
+
+class _InviteLinkState extends State<_InviteLink> {
+  @override
+  void initState() {
+    super.initState();
+    savePendingInvite(widget.code).then((_) {
+      if (mounted) context.go('/');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(body: Center(child: CircularProgressIndicator()));
 }
