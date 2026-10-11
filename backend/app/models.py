@@ -375,3 +375,20 @@ class PairLevel(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     level: Mapped[str] = mapped_column(String(8), default="warm")
+
+
+class Invite(Base):
+    """Мягкое приглашение: «да» / «давай в другой день» / «не сегодня, но мне приятно». Без «нет»."""
+
+    __tablename__ = "invites"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    title: Mapped[str] = mapped_column(String(80))
+    note: Mapped[str | None] = mapped_column(String(300))
+    at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | yes | later | not_today | cancelled
+    proposed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # «давай в другой день»
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

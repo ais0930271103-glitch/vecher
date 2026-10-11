@@ -11,6 +11,7 @@ import '../../core/ui.dart';
 import '../us/reminders_screen.dart';
 import '../us/us_screen.dart';
 import '../wishes/wishes_screen.dart' show decksProvider;
+import 'invites.dart';
 
 /// Данные экрана «Сегодня» для пары: GET /today.
 final todayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -70,6 +71,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
       ref.invalidate(remindersProvider);
       ref.invalidate(inboxProvider);
       ref.invalidate(incomingSurprisesProvider);
+      ref.invalidate(invitesProvider);
     });
   }
 
@@ -107,6 +109,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         const SizedBox(height: 16),
         if (t['partner_mood'] != null)
           _PartnerMood(mood: Map<String, dynamic>.from(t['partner_mood'] as Map), partnerName: widget.partnerName),
+        InvitesSection(partnerName: widget.partnerName),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>(), partnerName: widget.partnerName),
         _FromPartner(partnerName: widget.partnerName),
         const _Upcoming(),
@@ -119,6 +122,8 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         _QuestionCard(data: t, partnerName: widget.partnerName),
         const SizedBox(height: 18),
         const _RadarRow(),
+        const SizedBox(height: 12),
+        InviteButton(partnerName: widget.partnerName),
         const SizedBox(height: 16),
         const _DeckPromo(),
         const SizedBox(height: 16),
