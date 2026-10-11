@@ -36,6 +36,13 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https" android:host="xn--b1aga8b7a.online" android:pathPrefix="/i/"/>
             </intent-filter>
+            <!-- Ссылки-приглашения тестового сервера: https://api-test.вечер.online/i/КОД -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="api-test.xn--b1aga8b7a.online" android:pathPrefix="/i/"/>
+            </intent-filter>
             <!-- Кнопка «Открыть в приложении» на странице приглашения: vecher://open/i/КОД -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>

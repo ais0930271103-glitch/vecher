@@ -19,3 +19,13 @@ async def test_invite_link_and_preview(client):
     # Использованная ссылка больше не работает.
     assert (await client.get(f"/pairs/invite/{code}", headers=hb)).status_code == 404
     assert (await client.get("/pairs/me", headers=ha)).json()["invite_url"] is None
+
+
+async def test_invite_page_in_browser(client):
+    ha = await login(client, "anya2@example.ru")
+    await client.put("/auth/me", headers=ha, json={"display_name": "Аня"})
+    code = (await client.post("/pairs/invite", headers=ha)).json()["invite_code"]
+    page = await client.get(f"/i/{code}")
+    assert page.status_code == 200 and "Аня приглашает тебя" in page.text
+    assert f"vecher://open/i/{code}" in page.text
+    assert (await client.get("/i/NOPE0000")).status_code == 404

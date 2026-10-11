@@ -33,6 +33,8 @@ services:
       VECHER_DATABASE_URL: postgresql+asyncpg://vecher:${POSTGRES_PASSWORD}@db:5432/vecher
       VECHER_FIREBASE_CREDENTIALS: /run/vecher/firebase-key.json
       VECHER_DOWNLOADS_DIR: /srv/downloads
+      # Ссылки-приглашения ведут на страницу этого сервера: https://api-test.вечер.online/i/КОД
+      VECHER_PUBLIC_URL: https://api-test.xn--b1aga8b7a.online
     volumes:
       - ./secrets:/run/vecher:ro
       # Обновления приложения: vecher.apk и version.json (кладёт app/release.ps1 с ПК)
