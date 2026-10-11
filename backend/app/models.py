@@ -106,3 +106,44 @@ class RadarSignal(Base):
     day: Mapped[date] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# ---------- Этап 3: свайпер желаний ----------
+
+class WishCard(Base):
+    """Карточка желания. Стартовый набор — app/content/wishes.py, позже — Directus."""
+
+    __tablename__ = "wish_cards"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    deck: Mapped[str] = mapped_column(String(24), index=True)
+    text: Mapped[str] = mapped_column(String(200))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class WishSwipe(Base):
+    """Выбор одного человека по карточке. Партнёру никогда не показывается напрямую —
+    только через совпадения (оба «да» / «да» и «может быть»)."""
+
+    __tablename__ = "wish_swipes"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", "card_id", name="uq_one_swipe_per_card"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
+    choice: Mapped[str] = mapped_column(String(8))  # yes | maybe | no
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WishView(Base):
+    """Когда человек последний раз открывал список совпадений — для пометки «новое»."""
+
+    __tablename__ = "wish_views"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", name="uq_wish_view"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
