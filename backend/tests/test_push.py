@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from app import push
 from app.db import SessionLocal
 from app.scheduler import tick
-from conftest import make_pair
+from conftest import login, make_pair
 
 MSK = timezone(timedelta(hours=3))
 
@@ -83,3 +83,13 @@ async def test_important_dates_reminders(client):
         await tick(s, late.astimezone(timezone.utc))
         await tick(s, late.astimezone(timezone.utc))
     assert bodies(a).count("Через 7 дней: ДР Ани") == 1
+
+
+async def test_push_test_endpoint_without_key(client):
+    """Без ключа Firebase проверка честно отвечает: firebase=None, устройств — сколько зарегистрировано."""
+    h = await login(client, "tester@example.com")
+    r = await client.post("/push/test", headers=h)
+    assert r.status_code == 200
+    assert r.json() == {"firebase": None, "devices": 0, "delay": 5}
+    await client.post("/push/register", json={"token": "x" * 20}, headers=h)
+    assert (await client.post("/push/test?delay=99", headers=h)).json() == {"firebase": None, "devices": 1, "delay": 30}

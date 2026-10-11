@@ -21,7 +21,11 @@ Future<void> initPush(Dio dio) async {
     await Firebase.initializeApp();
     final fm = FirebaseMessaging.instance;
     final perm = await fm.requestPermission();
-    if (perm.authorizationStatus == AuthorizationStatus.denied) return;
+    debugPrint('Push: разрешение — ${perm.authorizationStatus}');
+    if (perm.authorizationStatus == AuthorizationStatus.denied) {
+      _started = false; // разрешат позже в настройках — попробуем снова
+      return;
+    }
 
     Future<void> register(String token) async {
       _token = token;
@@ -29,7 +33,11 @@ Future<void> initPush(Dio dio) async {
     }
 
     final token = await fm.getToken();
-    if (token != null) await register(token);
+    debugPrint('Push: токен ${token == null ? 'не получен' : 'получен'}');
+    if (token != null) {
+      await register(token);
+      debugPrint('Push: телефон зарегистрирован на сервере');
+    }
     fm.onTokenRefresh.listen((t) => register(t).catchError((_) {}));
 
     // Пока приложение открыто — показываем коротко внизу экрана.

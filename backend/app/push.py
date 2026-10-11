@@ -45,6 +45,16 @@ class FcmSender:
 
     async def send(self, token: str, title: str, body: str, data: dict) -> bool:
         """True — доставлено в FCM; False — токен больше не действует (удалить)."""
+        status, text = await self.send_raw(token, title, body, data)
+        if status == 200:
+            return True
+        if status in (400, 404) and ("UNREGISTERED" in text or "INVALID_ARGUMENT" in text):
+            return False
+        log.warning("FCM %s: %s", status, text[:300])
+        return True
+
+    async def send_raw(self, token: str, title: str, body: str, data: dict) -> tuple[int, str]:
+        """Отправка как есть: (код ответа FCM, текст ответа) — для диагностики."""
         access = await asyncio.to_thread(self._token)
         url = f"https://fcm.googleapis.com/v1/projects/{self.project_id}/messages:send"
         payload = {"message": {
@@ -55,12 +65,7 @@ class FcmSender:
         }}
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(url, json=payload, headers={"Authorization": f"Bearer {access}"})
-        if r.status_code == 200:
-            return True
-        if r.status_code in (400, 404) and ("UNREGISTERED" in r.text or "INVALID_ARGUMENT" in r.text):
-            return False
-        log.warning("FCM %s: %s", r.status_code, r.text[:300])
-        return True
+        return r.status_code, r.text
 
 
 _sender: FcmSender | None = None

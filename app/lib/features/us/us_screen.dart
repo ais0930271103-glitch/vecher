@@ -111,6 +111,14 @@ class UsScreen extends ConsumerWidget {
                   subtitle: open == 0 ? 'Себе, партнёру или обоим' : 'Для тебя: $open',
                   onTap: () => _go(context, ref, '/us/reminders'),
                 ),
+                const SizedBox(height: 8),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () => _testPush(context, ref),
+                    icon: const Icon(Icons.notifications_outlined, size: 18, color: VColors.muted),
+                    label: const Text('Проверить уведомления', style: TextStyle(color: VColors.muted)),
+                  ),
+                ),
               ]);
             },
           ),
@@ -120,6 +128,35 @@ class UsScreen extends ConsumerWidget {
   }
 
   static String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  /// Тест push: сервер пришлёт уведомление через 5 секунд — за это время нужно свернуть приложение.
+  static Future<void> _testPush(BuildContext context, WidgetRef ref) async {
+    final dio = ref.read(dioProvider);
+    String text;
+    try {
+      await initPush(dio); // если раньше не получилось подключиться — пробуем ещё раз
+      final r = Map<String, dynamic>.from((await dio.post('/push/test')).data as Map);
+      if (r['firebase'] == null) {
+        text = 'Сервер не видит ключ Firebase (firebase-key.json в папке backend). Уведомления пока не отправляются.';
+      } else if (r['devices'] == 0) {
+        text = 'Этот телефон не зарегистрирован для уведомлений. Проверь, что уведомления для «Вечера» разрешены в настройках телефона, и попробуй снова.';
+      } else {
+        text = 'Сверни приложение кнопкой «Домой» — через ${r['delay']} секунд придёт уведомление.';
+      }
+    } catch (e) {
+      text = errorText(e);
+    }
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: VColors.card,
+        title: const Text('Уведомления'),
+        content: Text(text),
+        actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Понятно'))],
+      ),
+    );
+  }
 
   static Future<void> _go(BuildContext context, WidgetRef ref, String path) async {
     await context.push(path);
