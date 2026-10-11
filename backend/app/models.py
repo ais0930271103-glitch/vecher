@@ -188,3 +188,60 @@ class PlanVote(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
     option: Mapped[int] = mapped_column(Integer)
+
+
+# ---------- Этап 4: «Мой человек» — памятка, даты, напоминания ----------
+
+class ProfileFact(Base):
+    """Факт «о себе» (размер, любимые цветы…). Видит партнёр — это его памятка."""
+
+    __tablename__ = "profile_facts"
+    __table_args__ = (UniqueConstraint("user_id", "key", name="uq_profile_fact"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    key: Mapped[str] = mapped_column(String(32))
+    value: Mapped[str] = mapped_column(String(300))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerNote(Base):
+    """Личная заметка о партнёре. Видит только автор."""
+
+    __tablename__ = "partner_notes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    text: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PairDate(Base):
+    """Важная дата пары: знакомство, дни рождения, годовщины."""
+
+    __tablename__ = "pair_dates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(80))
+    day: Mapped[date] = mapped_column(Date)
+    kind: Mapped[str] = mapped_column(String(16))  # met | birthday | anniversary | other
+    yearly: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Reminder(Base):
+    """Напоминание: себе (me), партнёру (partner) или обоим (both)."""
+
+    __tablename__ = "reminders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    target: Mapped[str] = mapped_column(String(8))
+    text: Mapped[str] = mapped_column(String(200))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

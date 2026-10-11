@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/theme.dart';
+import '../us/us_screen.dart';
 import 'paired_today.dart';
 
 /// Состояние пары с сервера: null — пары нет, иначе pending (ждём партнёра) или active.
@@ -38,6 +39,8 @@ class TodayScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(todayProvider);
             ref.invalidate(upcomingProvider);
+            ref.invalidate(remindersProvider);
+            ref.invalidate(datesProvider);
             await ref.refresh(pairProvider.future);
           },
           child: ListView(padding: const EdgeInsets.all(20), children: [

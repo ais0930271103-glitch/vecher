@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../us/reminders_screen.dart';
+import '../us/us_screen.dart';
 
 /// Данные экрана «Сегодня» для пары: GET /today.
 final todayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -51,6 +53,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
     _poll = Timer.periodic(const Duration(seconds: 15), (_) {
       ref.invalidate(todayProvider);
       ref.invalidate(upcomingProvider);
+      ref.invalidate(remindersProvider);
     });
   }
 
@@ -78,6 +81,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         const SizedBox(height: 16),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>()),
         const _Upcoming(),
+        const _UsStrip(),
         _QuestionCard(data: t),
         const SizedBox(height: 18),
         const _RadarRow(),
@@ -401,5 +405,88 @@ class _Upcoming extends ConsumerWidget {
           ),
         ),
     ]);
+  }
+}
+
+/// «Вместе N дней», ближайшая дата и мои напоминания на сегодня.
+class _UsStrip extends ConsumerWidget {
+  const _UsStrip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dates = ref.watch(datesProvider).valueOrNull;
+    final reminders = ref.watch(remindersProvider).valueOrNull ?? const [];
+    final together = dates?['together_days'] as int?;
+    final next = ((dates?['items'] as List?) ?? const [])
+        .cast<Map>()
+        .where((i) => (i['days_left'] as int) >= 0 && (i['days_left'] as int) <= 30)
+        .firstOrNull;
+
+    final now = DateTime.now();
+    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+    final todays = reminders.where((r) {
+      if (r['done'] == true || r['for_me'] != true) return false;
+      final due = r['due_at'] == null ? null : DateTime.parse(r['due_at'] as String).toLocal();
+      return due == null || !due.isAfter(endOfDay);
+    }).take(3).toList();
+
+    final chips = <Widget>[
+      if (together != null) _InfoChip(icon: Icons.favorite, text: '$together ${plural(together, 'день', 'дня', 'дней')} вместе'),
+      if (next != null)
+        _InfoChip(
+          icon: Icons.event,
+          text: '${next['title']} — ${daysLeftText(next['days_left'] as int)}',
+          gold: (next['days_left'] as int) <= 7,
+          onTap: () => context.push('/us/dates'),
+        ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (chips.isNotEmpty) ...[
+          Wrap(spacing: 8, runSpacing: 8, children: chips),
+          const SizedBox(height: 12),
+        ],
+        for (final r in todays) ReminderTile(r: r, compact: true),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => addReminder(context, ref),
+            icon: const Icon(Icons.add, size: 18, color: VColors.gold),
+            label: const Text('Напоминание', style: TextStyle(color: VColors.gold)),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.text, this.gold = false, this.onTap});
+  final IconData icon;
+  final String text;
+  final bool gold;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: const Color(0xFF1B1E44),
+          border: Border.all(color: gold ? const Color(0x80F3C98B) : const Color(0x1FFFFFFF)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: gold ? VColors.gold : VColors.lavender),
+          const SizedBox(width: 6),
+          Text(text, style: const TextStyle(fontSize: 13, color: VColors.soft)),
+        ]),
+      ),
+    );
   }
 }
