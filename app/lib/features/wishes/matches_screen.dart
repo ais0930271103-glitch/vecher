@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/format.dart';
 import '../../core/theme.dart';
 import 'wishes_screen.dart' show deckIcons;
 
@@ -69,14 +71,25 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _MatchTile extends StatelessWidget {
+class _MatchTile extends ConsumerWidget {
   const _MatchTile({required this.m});
   final Map<String, dynamic> m;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final fresh = m['new'] == true;
-    return Container(
+    final scheduled = m['scheduled_at'] == null ? null : DateTime.parse(m['scheduled_at'] as String);
+    final status = scheduled != null
+        ? 'Запланировано: ${formatWhen(scheduled)}'
+        : m['plan_open'] == true
+            ? 'План открыт — выберите вариант'
+            : 'Открыть план вечера →';
+    return GestureDetector(
+      onTap: () async {
+        await context.push('/wishes/plan/${m['card_id']}');
+        ref.invalidate(matchesProvider);
+      },
+      child: Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -92,6 +105,9 @@ class _MatchTile extends StatelessWidget {
             Text(m['text'] as String, style: const TextStyle(fontSize: 16, height: 1.35)),
             const SizedBox(height: 4),
             Text(m['deck_title'] as String, style: const TextStyle(fontSize: 12, color: VColors.muted)),
+            const SizedBox(height: 6),
+            Text(status,
+                style: TextStyle(fontSize: 13, color: scheduled != null ? VColors.gold : VColors.lavender)),
           ]),
         ),
         if (fresh)
@@ -103,6 +119,7 @@ class _MatchTile extends StatelessWidget {
                 style: TextStyle(color: VColors.ink, fontSize: 11, fontWeight: FontWeight.w700)),
           ),
       ]),
+      ),
     );
   }
 }

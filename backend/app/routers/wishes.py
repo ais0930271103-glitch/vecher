@@ -14,7 +14,7 @@ from sqlalchemy.orm import aliased
 from ..content.wishes import CARDS, DECKS
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date
-from ..models import WishCard, WishSwipe, WishView, utcnow
+from ..models import PlanUnlock, WishCard, WishSwipe, WishView, utcnow
 from .today import mark_activity
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
@@ -62,6 +62,20 @@ async def _matches(session: AsyncSession, ctx: PairContext) -> list[tuple[WishCa
     return out
 
 
+async def match_for_card(session: AsyncSession, ctx: PairContext, card_id: int) -> tuple[WishCard, str] | None:
+    """Совпадение пары по одной карточке или None."""
+    rows = dict((await session.execute(
+        select(WishSwipe.user_id, WishSwipe.choice)
+        .where(WishSwipe.pair_id == ctx.pair.id, WishSwipe.card_id == card_id)
+    )).all())
+    a, b = rows.get(ctx.user.id), rows.get(ctx.partner_id)
+    kind = match_kind(a, b) if a and b else None
+    if not kind:
+        return None
+    card = await session.get(WishCard, card_id)
+    return (card, kind) if card else None
+
+
 async def _seen_at(session: AsyncSession, ctx: PairContext) -> datetime | None:
     v = (await session.execute(
         select(WishView.seen_at).where(WishView.pair_id == ctx.pair.id, WishView.user_id == ctx.user.id)
@@ -104,6 +118,8 @@ class MatchOut(BaseModel):
     kind: str  # yes — оба «да»; maybe — можно обсудить
     matched_at: datetime
     new: bool = False
+    plan_open: bool = False
+    scheduled_at: datetime | None = None
 
 
 class SwipeOut(BaseModel):
@@ -211,7 +227,18 @@ async def matches(ctx: PairContext = Depends(active_pair), session: AsyncSession
     """Взаимные желания. Открытие списка снимает пометку «новое»."""
     found = await _matches(session, ctx)
     seen = await _seen_at(session, ctx)
-    result = [_match_out(card, kind, at, seen) for card, kind, at in found]
+    unlocks = {
+        u.card_id: u for u in (await session.execute(
+            select(PlanUnlock).where(PlanUnlock.pair_id == ctx.pair.id)
+        )).scalars()
+    }
+    result = []
+    for card, kind, at in found:
+        m = _match_out(card, kind, at, seen)
+        if (u := unlocks.get(card.id)) is not None:
+            m.plan_open = True
+            m.scheduled_at = _aware(u.scheduled_at) if u.scheduled_at else None
+        result.append(m)
 
     view = (await session.execute(
         select(WishView).where(WishView.pair_id == ctx.pair.id, WishView.user_id == ctx.user.id)

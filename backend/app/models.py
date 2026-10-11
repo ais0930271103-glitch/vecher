@@ -147,3 +147,44 @@ class WishView(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- Планы к совпадениям и подписка ----------
+
+class PairSubscription(Base):
+    """Подписка «Вечер+» — одна на пару, открывается обоим. Оплата подключается на этапе 5."""
+
+    __tablename__ = "pair_subscriptions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), unique=True)
+    until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(16), default="dev")  # dev | store
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PlanUnlock(Base):
+    """План к совпадению открыт для пары (бесплатный или по подписке)."""
+
+    __tablename__ = "plan_unlocks"
+    __table_args__ = (UniqueConstraint("pair_id", "card_id", name="uq_plan_unlock"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
+    free: Mapped[bool] = mapped_column(Boolean, default=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PlanVote(Base):
+    """Какой вариант плана выбрал каждый. Совпали голоса — вариант выбран."""
+
+    __tablename__ = "plan_votes"
+    __table_args__ = (UniqueConstraint("pair_id", "user_id", "card_id", name="uq_plan_vote"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
+    option: Mapped[int] = mapped_column(Integer)

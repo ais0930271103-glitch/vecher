@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Часовой пояс, по которому считается «сегодня» (вопрос дня, огонёк).
     timezone: str = "Europe/Moscow"
     radar_daily_limit: int = 30
+    free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки
     cors_origins: list[str] = ["http://localhost:3000"]
     # В dev разрешаем любой localhost-порт: flutter run -d chrome каждый раз берёт случайный порт.
     cors_dev_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"

@@ -140,9 +140,9 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
     }
   }
 
-  Future<void> _showMatch(Map<String, dynamic> m) {
+  Future<void> _showMatch(Map<String, dynamic> m) async {
     final both = m['kind'] == 'yes';
-    return showDialog<void>(
+    final openPlan = await showDialog<bool>(
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: VColors.card,
@@ -161,11 +161,19 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> with SingleTickerProv
             Text(both ? 'Вы оба этого хотите' : 'Один хочет, другой — может быть',
                 style: const TextStyle(color: VColors.soft)),
             const SizedBox(height: 20),
-            FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Листать дальше')),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Открыть план вечера'),
+            ),
+            const SizedBox(height: 6),
+            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Листать дальше')),
           ]),
         ),
       ),
     );
+    if (openPlan == true && mounted) {
+      await context.push('/wishes/plan/${m['card_id']}');
+    }
   }
 
   // ---------- интерфейс ----------

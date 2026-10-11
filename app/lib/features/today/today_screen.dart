@@ -37,6 +37,7 @@ class TodayScreen extends ConsumerWidget {
         child: RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(todayProvider);
+            ref.invalidate(upcomingProvider);
             await ref.refresh(pairProvider.future);
           },
           child: ListView(padding: const EdgeInsets.all(20), children: [

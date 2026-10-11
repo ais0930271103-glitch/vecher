@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router.dart';
@@ -36,6 +37,14 @@ class VecherApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       routerConfig: router,
+      // Русский интерфейс системных элементов: календарь, выбор времени, меню копирования.
+      locale: const Locale('ru'),
+      supportedLocales: const [Locale('ru')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
     );
   }
 }

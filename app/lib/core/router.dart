@@ -7,6 +7,7 @@ import '../features/today/today_screen.dart';
 import '../features/welcome/splash_screen.dart';
 import '../features/welcome/welcome_screen.dart';
 import '../features/wishes/matches_screen.dart';
+import '../features/wishes/plan_screen.dart';
 import '../features/wishes/swipe_screen.dart';
 import '../features/wishes/wishes_screen.dart';
 import 'theme.dart';
@@ -44,6 +45,11 @@ final router = GoRouter(
                   deckId: state.pathParameters['id']!,
                   title: state.extra as String? ?? 'Желания',
                 ),
+              ),
+              GoRoute(
+                path: 'plan/:cardId',
+                parentNavigatorKey: _rootKey,
+                builder: (_, state) => PlanScreen(cardId: int.parse(state.pathParameters['cardId']!)),
               ),
               GoRoute(
                 path: 'matches',

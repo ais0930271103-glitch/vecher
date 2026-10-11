@@ -2,14 +2,22 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/format.dart';
 import '../../core/theme.dart';
 
 /// Данные экрана «Сегодня» для пары: GET /today.
 final todayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final r = await ref.read(dioProvider).get('/today');
   return Map<String, dynamic>.from(r.data as Map);
+});
+
+/// Ближайшие запланированные вечера: GET /plans/upcoming.
+final upcomingProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final r = await ref.read(dioProvider).get('/plans/upcoming');
+  return (r.data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
 });
 
 const _radarButtons = <(String, String)>[
@@ -40,7 +48,10 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
   void initState() {
     super.initState();
     // Пока нет мгновенных обновлений (Centrifugo — следующий шаг), подтягиваем раз в 15 секунд.
-    _poll = Timer.periodic(const Duration(seconds: 15), (_) => ref.invalidate(todayProvider));
+    _poll = Timer.periodic(const Duration(seconds: 15), (_) {
+      ref.invalidate(todayProvider);
+      ref.invalidate(upcomingProvider);
+    });
   }
 
   @override
@@ -66,6 +77,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         ]),
         const SizedBox(height: 16),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>()),
+        const _Upcoming(),
         _QuestionCard(data: t),
         const SizedBox(height: 18),
         const _RadarRow(),
@@ -341,6 +353,53 @@ class _RadarRowState extends ConsumerState<_RadarRow> {
             labelStyle: const TextStyle(color: VColors.text),
           ),
       ]),
+    ]);
+  }
+}
+
+class _Upcoming extends ConsumerWidget {
+  const _Upcoming();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final list = ref.watch(upcomingProvider).valueOrNull ?? const [];
+    if (list.isEmpty) return const SizedBox.shrink();
+    return Column(children: [
+      for (final u in list)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Material(
+            color: VColors.card,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+              side: const BorderSide(color: Color(0x4DF3C98B)),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () async {
+                await context.push('/wishes/plan/${u['card_id']}');
+                ref.invalidate(upcomingProvider);
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(children: [
+                  const Icon(Icons.event_available, color: VColors.gold),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(formatWhen(DateTime.parse(u['scheduled_at'] as String)),
+                          style: const TextStyle(fontSize: 13, color: VColors.gold)),
+                      const SizedBox(height: 2),
+                      Text((u['chosen_title'] as String?) ?? (u['text'] as String),
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    ]),
+                  ),
+                  const Icon(Icons.chevron_right, color: VColors.muted),
+                ]),
+              ),
+            ),
+          ),
+        ),
     ]);
   }
 }
