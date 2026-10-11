@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..models import Pair, PairMember, User
 from ..security import current_user
+from ..push import notify
 
 router = APIRouter(prefix="/pairs", tags=["pairs"])
 
@@ -86,4 +87,11 @@ async def join(body: JoinIn, user: User = Depends(current_user), session: AsyncS
     pair.status = "active"
     pair.invite_code = None  # одноразовый код
     await session.commit()
+    inviter = (await session.execute(
+        select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
+    )).scalar_one_or_none()
+    if inviter:
+        name = user.display_name or "Партнёр"
+        await notify(session, inviter, "Вечер", f"{name} с тобой — «Вечер» открыт для вас двоих",
+                     {"open": "today"}, key=f"joined:{pair.id}")
     return await _out(session, pair, user.id)

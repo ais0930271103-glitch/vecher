@@ -1,4 +1,6 @@
 # secrets
+firebase-key.json
+*firebase-adminsdk*.json
 .env
 *.env
 !.env.example

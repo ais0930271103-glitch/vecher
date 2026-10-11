@@ -3,6 +3,8 @@ import os
 
 os.environ["VECHER_DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["VECHER_ENV"] = "dev"
+os.environ["VECHER_SCHEDULER_ENABLED"] = "0"  # фоновые уведомления в тестах вызываем вручную
+os.environ["VECHER_FIREBASE_CREDENTIALS"] = "no-such-key.json"
 os.environ["VECHER_OTP_RESEND_SECONDS"] = "0"  # в тестах коды запрашиваются подряд
 os.environ["VECHER_JWT_SECRET"] = "test-secret-0123456789abcdef0123456789abcdef"
 

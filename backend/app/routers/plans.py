@@ -16,6 +16,7 @@ from ..content.wishes import DECKS
 from ..db import get_session
 from ..deps import PairContext, active_pair
 from ..models import PairSubscription, PlanUnlock, PlanVote, WishCard, utcnow
+from ..push import display_name, local_when, notify
 from .wishes import _aware, match_for_card
 
 router = APIRouter(tags=["plans"])
@@ -249,4 +250,8 @@ async def schedule(card_id: int, body: ScheduleIn, ctx: PairContext = Depends(ac
     # Храним в UTC: SQLite не сохраняет часовой пояс.
     unlock.scheduled_at = body.at.astimezone(timezone.utc) if body.at else None
     await session.commit()
+    if body.at is not None:
+        name = await display_name(session, ctx.user.id)
+        await notify(session, ctx.partner_id, "Вечер", f"{name} запланировал(а) вечер: {local_when(body.at)}",
+                     {"open": "plan", "card_id": card_id}, key=f"plan:{card_id}:{ctx.pair.id}:{body.at.isoformat()}")
     return await _plan_out(session, ctx, card_id)

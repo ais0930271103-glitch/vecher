@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/push.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 
@@ -47,6 +48,7 @@ class UsScreen extends ConsumerWidget {
             tooltip: 'Выйти',
             icon: const Icon(Icons.logout, color: VColors.muted),
             onPressed: () async {
+              await stopPush(ref.read(dioProvider));
               await clearToken();
               if (context.mounted) context.go('/welcome');
             },

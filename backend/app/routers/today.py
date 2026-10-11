@@ -11,6 +11,7 @@ from ..content.questions import QUESTIONS
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date
 from ..models import Activity, DailyAnswer, Question, RadarSignal
+from ..push import display_name, notify
 
 router = APIRouter(tags=["today"])
 
@@ -172,6 +173,9 @@ async def answer_today(
     session.add(DailyAnswer(pair_id=ctx.pair.id, user_id=ctx.user.id, day=day, question_id=q.id, text=text))
     await mark_activity(session, ctx, day)
     await session.commit()
+    name = await display_name(session, ctx.user.id)
+    await notify(session, ctx.partner_id, "Вечер", f"{name} ответил(а) на вопрос дня",
+                 {"open": "today"}, key=f"answer:{ctx.pair.id}:{day}:{ctx.user.id}")
     return await get_today(ctx, session, day)
 
 
@@ -194,6 +198,8 @@ async def send_radar(
     session.add(RadarSignal(pair_id=ctx.pair.id, from_user_id=ctx.user.id, kind=body.kind, day=day))
     await mark_activity(session, ctx, day)
     await session.commit()
+    name = await display_name(session, ctx.user.id)
+    await notify(session, ctx.partner_id, "Вечер", f"{name}: «{RADAR_KINDS[body.kind]}»", {"open": "today"})
     return {"ok": True, "label": RADAR_KINDS[body.kind]}
 
 

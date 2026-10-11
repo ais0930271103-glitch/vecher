@@ -15,6 +15,7 @@ from ..content.wishes import CARDS, DECKS
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date
 from ..models import PlanUnlock, WishCard, WishSwipe, WishView, utcnow
+from ..push import notify
 from .today import mark_activity
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
@@ -219,6 +220,10 @@ async def swipe(
     await session.commit()
 
     kind = match_kind(body.choice, theirs) if theirs else None
+    if kind:
+        # Партнёр ответил раньше — сообщаем ему о совпадении (без текста карточки).
+        await notify(session, ctx.partner_id, "Вечер", "У вас новое совпадение",
+                     {"open": "matches"}, key=f"match:{ctx.pair.id}:{card.id}")
     return SwipeOut(match=_match_out(card, kind, now) if kind else None)
 
 

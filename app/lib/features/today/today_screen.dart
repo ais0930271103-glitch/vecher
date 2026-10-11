@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/push.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../us/us_screen.dart';
@@ -31,6 +32,7 @@ class TodayScreen extends ConsumerWidget {
             tooltip: 'Выйти',
             icon: const Icon(Icons.logout),
             onPressed: () async {
+              await stopPush(ref.read(dioProvider));
               await clearToken();
               if (context.mounted) context.go('/welcome');
             },

@@ -11,6 +11,7 @@ from ..config import get_settings
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date
 from ..models import Activity, Letter, QuietWish, Surprise, User, WishCard, WishSwipe, utcnow
+from ..push import local_when, notify
 from .wishes import ensure_cards
 
 router = APIRouter(tags=["solo"])
@@ -230,6 +231,8 @@ async def add_surprise(body: SurpriseIn, ctx: PairContext = Depends(active_pair)
                  note=(body.note or "").strip() or None, at=at, created_at=utcnow())
     session.add(s)
     await session.commit()
+    await notify(session, ctx.partner_id, "Вечер", f"Тебя ждёт сюрприз — {local_when(at)}",
+                 {"open": "today"}, key=f"surprise-new:{s.id}")
     return MySurpriseOut(id=s.id, title=s.title, note=s.note, at=at)
 
 

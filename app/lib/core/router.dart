@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/auth/code_screen.dart';
@@ -16,6 +17,8 @@ import '../features/wishes/matches_screen.dart';
 import '../features/wishes/plan_screen.dart';
 import '../features/wishes/swipe_screen.dart';
 import '../features/wishes/wishes_screen.dart';
+import 'api.dart';
+import 'push.dart';
 import 'theme.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
@@ -86,9 +89,23 @@ final router = GoRouter(
   ],
 );
 
-class _HomeShell extends StatelessWidget {
+class _HomeShell extends ConsumerStatefulWidget {
   const _HomeShell({required this.shell});
   final StatefulNavigationShell shell;
+
+  @override
+  ConsumerState<_HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends ConsumerState<_HomeShell> {
+  StatefulNavigationShell get shell => widget.shell;
+
+  @override
+  void initState() {
+    super.initState();
+    // Человек вошёл — подключаем push (разрешение спросит система).
+    initPush(ref.read(dioProvider));
+  }
 
   static const _tabs = <(IconData, String)>[
     (Icons.nightlight_outlined, 'Сегодня'),

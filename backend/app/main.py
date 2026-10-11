@@ -1,12 +1,14 @@
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import create_all
-from .routers import auth, pairs, plans, solo, today, us, wishes
+from .routers import auth, pairs, plans, push, solo, today, us, wishes
+from .scheduler import run_forever
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,7 +16,12 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_all()
+    task = asyncio.create_task(run_forever()) if get_settings().scheduler_enabled else None
     yield
+    if task:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 settings = get_settings()
@@ -39,6 +46,7 @@ app.include_router(wishes.router)
 app.include_router(plans.router)
 app.include_router(us.router)
 app.include_router(solo.router)
+app.include_router(push.router)
 
 
 @app.get("/health", tags=["system"])

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Moscow"
     radar_daily_limit: int = 30
     free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки
+    # Push: путь к ключу сервисного аккаунта Firebase (секрет, в git не хранится).
+    firebase_credentials: str = "firebase-key.json"
+    scheduler_enabled: bool = True  # фоновая отправка писем, сюрпризов, напоминаний, дат
     cors_origins: list[str] = ["http://localhost:3000"]
     # В dev разрешаем любой localhost-порт: flutter run -d chrome каждый раз берёт случайный порт.
     cors_dev_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"

@@ -10,6 +10,7 @@ from ..content.profile import PROFILE_KEYS, PROFILE_SECTIONS
 from ..db import get_session
 from ..deps import PairContext, active_pair, today_date
 from ..models import PairDate, PartnerNote, ProfileFact, Reminder, User, utcnow
+from ..push import display_name, notify
 
 router = APIRouter(tags=["us"])
 
@@ -306,6 +307,10 @@ async def add_reminder(body: ReminderIn, ctx: PairContext = Depends(active_pair)
                  due_at=_utc(body.due_at), created_at=utcnow())
     session.add(r)
     await session.commit()
+    if r.target in ("partner", "both"):
+        name = await display_name(session, ctx.user.id)
+        await notify(session, ctx.partner_id, "Вечер", f"{name}: новое напоминание — {text}",
+                     {"open": "reminders"}, key=f"reminder-new:{r.id}")
     return _out(r, ctx)
 
 

@@ -286,3 +286,27 @@ class Surprise(Base):
     note: Mapped[str | None] = mapped_column(String(500))
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ---------- Push-уведомления ----------
+
+class DeviceToken(Base):
+    """Токен устройства для push (FCM; позже RuStore и APNs)."""
+
+    __tablename__ = "device_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+    platform: Mapped[str] = mapped_column(String(16), default="android")  # android | ios | rustore
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PushLog(Base):
+    """Что уже отправлено — чтобы одно событие не пришло дважды (ключ вида letter:<id>)."""
+
+    __tablename__ = "push_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    key: Mapped[str] = mapped_column(String(120), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
