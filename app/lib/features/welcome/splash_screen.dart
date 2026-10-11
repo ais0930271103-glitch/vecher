@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
@@ -6,14 +7,14 @@ import '../../core/theme.dart';
 import 'moon.dart';
 
 /// Короткий сплэш (меньше секунды): решаем, куда вести — ко входу или в «Сегодня».
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
@@ -22,9 +23,19 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _route() async {
     final token = await readToken();
-    await Future<void>.delayed(const Duration(milliseconds: 700));
+    var target = token == null ? '/welcome' : '/today';
+    if (token != null) {
+      // Тем, кто зарегистрировался до появления шага с именем, тоже предложим его указать.
+      try {
+        final me = await ref.read(dioProvider).get('/auth/me');
+        if ((me.data as Map)['display_name'] == null) target = '/name';
+      } catch (_) {
+        // Нет связи или сессия истекла — экран «Сегодня» сам покажет, что не так.
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 500));
     if (!mounted) return;
-    context.go(token == null ? '/welcome' : '/today');
+    context.go(target);
   }
 
   @override

@@ -28,6 +28,11 @@ class TokenOut(BaseModel):
     access_token: str
     user_id: str
     is_new: bool
+    has_name: bool  # false — приложение сразу спросит имя
+
+
+class NameIn(BaseModel):
+    display_name: str = Field(min_length=1, max_length=60)
 
 
 class MeOut(BaseModel):
@@ -83,9 +88,22 @@ async def verify(body: CodeVerify, session: AsyncSession = Depends(get_session))
         user = User(email=email)
         session.add(user)
     await session.commit()
-    return TokenOut(access_token=create_token(user.id), user_id=user.id, is_new=is_new)
+    return TokenOut(access_token=create_token(user.id), user_id=user.id, is_new=is_new,
+                    has_name=bool(user.display_name))
 
 
 @router.get("/me", response_model=MeOut)
 async def me(user: User = Depends(current_user)) -> MeOut:
+    return MeOut(id=user.id, email=user.email, display_name=user.display_name)
+
+
+@router.put("/me", response_model=MeOut)
+async def set_my_name(body: NameIn, user: User = Depends(current_user),
+                      session: AsyncSession = Depends(get_session)) -> MeOut:
+    """Имя при регистрации — пара для этого не нужна."""
+    name = body.display_name.strip()
+    if not name:
+        raise HTTPException(422, "Введите имя")
+    user.display_name = name
+    await session.commit()
     return MeOut(id=user.id, email=user.email, display_name=user.display_name)

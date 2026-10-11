@@ -30,9 +30,11 @@ class _CodeScreenState extends ConsumerState<CodeScreen> {
         'email': widget.email,
         'code': _code.text,
       });
-      await saveToken((r.data as Map)['access_token'] as String);
+      final data = r.data as Map;
+      await saveToken(data['access_token'] as String);
       if (!mounted) return;
-      context.go('/today');
+      // Новый человек (или без имени) — сначала спросим, как его зовут.
+      context.go(data['has_name'] == true ? '/today' : '/name');
     } catch (e) {
       setState(() => _error = errorText(e));
     } finally {

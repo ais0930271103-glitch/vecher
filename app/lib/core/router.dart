@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/code_screen.dart';
 import '../features/auth/email_screen.dart';
+import '../features/auth/name_screen.dart';
 import '../features/today/today_screen.dart';
 import '../features/us/dates_screen.dart';
 import '../features/us/person_screens.dart';
@@ -25,6 +26,7 @@ final router = GoRouter(
     GoRoute(path: '/', builder: (_, __) => const SplashScreen()),
     GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
     GoRoute(path: '/login', builder: (_, __) => const EmailScreen()),
+    GoRoute(path: '/name', builder: (_, __) => const NameScreen()),
     GoRoute(
       path: '/code',
       builder: (_, state) => CodeScreen(email: state.extra as String? ?? ''),

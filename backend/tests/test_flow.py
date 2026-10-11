@@ -52,3 +52,18 @@ async def test_two_people_become_a_pair(client):
     t3 = await login(client, "third@example.ru")
     r = await client.post("/pairs/join", headers={"Authorization": f"Bearer {t3}"}, json={"code": code})
     assert r.status_code == 404
+
+
+async def test_name_at_registration(client):
+    code = (await client.post("/auth/request-code", json={"email": "new@example.ru"})).json()["dev_code"]
+    r = (await client.post("/auth/verify", json={"email": "new@example.ru", "code": code})).json()
+    assert r["is_new"] is True and r["has_name"] is False
+    h = {"Authorization": f"Bearer {r['access_token']}"}
+
+    assert (await client.put("/auth/me", headers=h, json={"display_name": "   "})).status_code == 422
+    me = (await client.put("/auth/me", headers=h, json={"display_name": " Артём "})).json()
+    assert me["display_name"] == "Артём"
+
+    code = (await client.post("/auth/request-code", json={"email": "new@example.ru"})).json()["dev_code"]
+    r = (await client.post("/auth/verify", json={"email": "new@example.ru", "code": code})).json()
+    assert r["is_new"] is False and r["has_name"] is True
