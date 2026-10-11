@@ -1,0 +1,80 @@
+# Вечер — локальная разработка и staging.
+# Запуск: из папки infra/  →  docker compose --env-file .env up -d --build
+# Все порты слушают только 127.0.0.1. Наружу их выпускает Caddy на сервере.
+# mem_limit у каждого сервиса — чтобы «Вечер» на общем сервере не мешал krug.
+
+name: vecher
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vecher
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте в .env}
+      POSTGRES_DB: vecher
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports: ["127.0.0.1:${DB_PORT:-5433}:5432"]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vecher"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+    mem_limit: 128m
+
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    restart: unless-stopped
+    command: ["centrifugo"]
+    environment:
+      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_SECRET:?задайте в .env}
+      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?задайте в .env}
+      CENTRIFUGO_ALLOWED_ORIGINS: "*"
+      CENTRIFUGO_ALLOW_USER_LIMITED_CHANNELS: "true"
+    ports: ["127.0.0.1:${CENTRIFUGO_PORT:-8100}:8000"]
+    mem_limit: 128m
+
+  directus:
+    image: directus/directus:11
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      KEY: ${DIRECTUS_KEY:?задайте в .env}
+      SECRET: ${DIRECTUS_SECRET:?задайте в .env}
+      DB_CLIENT: pg
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_DATABASE: directus
+      DB_USER: vecher
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      ADMIN_EMAIL: ${DIRECTUS_ADMIN_EMAIL:?задайте в .env}
+      ADMIN_PASSWORD: ${DIRECTUS_ADMIN_PASSWORD:?задайте в .env}
+      PUBLIC_URL: ${DIRECTUS_PUBLIC_URL:-http://localhost:8055}
+    volumes:
+      - directus-uploads:/directus/uploads
+    ports: ["127.0.0.1:${DIRECTUS_PORT:-8055}:8055"]
+    mem_limit: 512m
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      VECHER_ENV: ${VECHER_ENV:-dev}
+      VECHER_DATABASE_URL: postgresql+asyncpg://vecher:${POSTGRES_PASSWORD}@db:5432/vecher
+      VECHER_JWT_SECRET: ${JWT_SECRET:?задайте в .env}
+    ports: ["127.0.0.1:${API_PORT:-8090}:8000"]
+    mem_limit: 256m
+
+volumes:
+  db-data:
+  directus-uploads:
