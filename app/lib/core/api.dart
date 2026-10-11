@@ -1,11 +1,15 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// Адрес API. По умолчанию — локальный сервер для эмулятора Android
-/// (10.0.2.2 — это «localhost» вашего компьютера изнутри эмулятора).
+/// Адрес API. По умолчанию — локальный сервер:
+/// в браузере это localhost, в эмуляторе Android — 10.0.2.2 («localhost» вашего ПК изнутри эмулятора).
 /// Свой адрес: flutter run --dart-define=API_URL=https://api-test.вечер.online
-const apiUrl = String.fromEnvironment('API_URL', defaultValue: 'http://10.0.2.2:8090');
+const _apiUrlOverride = String.fromEnvironment('API_URL');
+String get apiUrl => _apiUrlOverride.isNotEmpty
+    ? _apiUrlOverride
+    : (kIsWeb ? 'http://localhost:8090' : 'http://10.0.2.2:8090');
 
 const _tokenKey = 'vecher_token';
 final secureStorage = const FlutterSecureStorage();

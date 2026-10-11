@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     otp_ttl_minutes: int = 10
     otp_max_attempts: int = 5
     cors_origins: list[str] = ["http://localhost:3000"]
+    # В dev разрешаем любой localhost-порт: flutter run -d chrome каждый раз берёт случайный порт.
+    cors_dev_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
     @property
     def is_dev(self) -> bool:

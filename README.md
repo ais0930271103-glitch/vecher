@@ -30,6 +30,20 @@
 
 ## 2. Запустить сервер
 
+### Вариант А — быстро, без Docker (Python + локальная база SQLite)
+
+```powershell
+cd C:\dev\vecher\backend
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8090
+```
+
+Окно не закрывайте — сервер работает, пока оно открыто. Проверка: http://localhost:8090/docs
+
+### Вариант Б — полный набор в Docker (PostgreSQL, Redis, Centrifugo, Directus)
+
 ```powershell
 cd vecher\infra
 copy .env.example .env
@@ -60,8 +74,14 @@ pytest
 
 ```powershell
 cd vecher\app
-flutter create --org online.vecher --project-name vecher_app --platforms android,ios .
+flutter create --org online.vecher --project-name vecher_app --platforms android,ios,web .
 flutter pub get
+```
+
+Самый быстрый способ посмотреть приложение — в браузере (Android и эмулятор не нужны):
+
+```powershell
+flutter run -d chrome
 ```
 
 Разрешить HTTP к локальному серверу в отладке: откройте `app\android\app\src\debug\AndroidManifest.xml`
