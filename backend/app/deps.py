@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .db import get_session
-from .consent import CONSENT_KINDS, CONSENT_VERSION
+from .consent import CONSENT_VERSION
 from .models import Consent, Pair, PairMember, User
 from .security import current_user
 
@@ -18,11 +18,13 @@ def today_date() -> date:
     return datetime.now(ZoneInfo(get_settings().timezone)).date()
 
 
-async def has_consent(session: AsyncSession, user_id: str) -> bool:
-    kinds = (await session.execute(
+async def has_consent(session: AsyncSession, user_id: str, kinds: tuple[str, ...] = ("personal",)) -> bool:
+    """personal — общее согласие (при регистрации); special — на сведения об интимной жизни и здоровье
+    (спрашиваем, когда человек впервые открывает карточки желаний или анкету «о себе»)."""
+    have = (await session.execute(
         select(Consent.kind).where(Consent.user_id == user_id, Consent.version == CONSENT_VERSION)
     )).scalars().all()
-    return set(CONSENT_KINDS) <= set(kinds)
+    return set(kinds) <= set(have)
 
 
 async def consented_user(
@@ -56,3 +58,16 @@ async def active_pair(
         select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
     )).scalar_one()
     return PairContext(user=user, pair=pair, partner_id=partner_id)
+
+
+SPECIAL_CONSENT_DETAIL = "Нужно согласие на сохранение ответов — открой раздел «Вместе»"
+
+
+async def special_pair(
+    ctx: PairContext = Depends(active_pair),
+    session: AsyncSession = Depends(get_session),
+) -> PairContext:
+    """Карточки желаний, планы и анкета «о себе» — особая категория данных (ст. 10 152-ФЗ)."""
+    if not await has_consent(session, ctx.user.id, ("special",)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, SPECIAL_CONSENT_DETAIL)
+    return ctx

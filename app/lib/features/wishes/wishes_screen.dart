@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../auth/consent_screen.dart';
 import '../../core/api.dart';
 import '../../core/theme.dart';
 
@@ -24,6 +25,8 @@ class WishesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final decks = ref.watch(decksProvider);
+    // Согласие на интимное спрашиваем здесь — когда человек впервые открывает карточки.
+    final needConsent = ref.watch(meProvider).valueOrNull?['special_ok'] == false;
     return Scaffold(
       appBar: AppBar(title: Text('Вместе', style: display(24))),
       body: SafeArea(
@@ -36,7 +39,14 @@ class WishesScreen extends ConsumerWidget {
               style: TextStyle(color: VColors.soft, fontSize: 15, height: 1.4),
             ),
             const SizedBox(height: 20),
-            decks.when(
+            if (needConsent)
+              const SpecialConsentCard(
+                title: 'Карточки — про близость',
+                text: 'Твои ответы видишь только ты, а партнёр — лишь совпадения. '
+                    'Чтобы сохранять их, нужно твоё согласие.',
+              )
+            else
+              decks.when(
               loading: () => const Padding(
                 padding: EdgeInsets.only(top: 60),
                 child: Center(child: CircularProgressIndicator()),

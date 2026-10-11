@@ -14,7 +14,7 @@ from ..config import get_settings
 from ..content.plans import plan_for
 from ..content.wishes import DECKS
 from ..db import get_session
-from ..deps import PairContext, active_pair
+from ..deps import PairContext, active_pair, special_pair
 from ..models import PairSubscription, PlanUnlock, PlanVote, WishCard, utcnow
 from ..push import display_name, local_when, notify
 from .wishes import _aware, match_for_card
@@ -201,13 +201,13 @@ async def upcoming(ctx: PairContext = Depends(active_pair), session: AsyncSessio
 
 
 @router.get("/plans/{card_id}", response_model=PlanOut)
-async def get_plan(card_id: int, ctx: PairContext = Depends(active_pair),
+async def get_plan(card_id: int, ctx: PairContext = Depends(special_pair),
                    session: AsyncSession = Depends(get_session)):
     return await _plan_out(session, ctx, card_id)
 
 
 @router.post("/plans/{card_id}/open", response_model=PlanOut)
-async def open_plan(card_id: int, ctx: PairContext = Depends(active_pair),
+async def open_plan(card_id: int, ctx: PairContext = Depends(special_pair),
                     session: AsyncSession = Depends(get_session)):
     await _matched_plan(session, ctx, card_id)
     if await _unlock(session, ctx, card_id) is None:
@@ -223,7 +223,7 @@ async def open_plan(card_id: int, ctx: PairContext = Depends(active_pair),
 
 
 @router.post("/plans/{card_id}/vote", response_model=PlanOut)
-async def vote(card_id: int, body: VoteIn, ctx: PairContext = Depends(active_pair),
+async def vote(card_id: int, body: VoteIn, ctx: PairContext = Depends(special_pair),
                session: AsyncSession = Depends(get_session)):
     await _require_unlocked(session, ctx, card_id)
     _, _, plan = await _matched_plan(session, ctx, card_id)
@@ -242,7 +242,7 @@ async def vote(card_id: int, body: VoteIn, ctx: PairContext = Depends(active_pai
 
 
 @router.post("/plans/{card_id}/schedule", response_model=PlanOut)
-async def schedule(card_id: int, body: ScheduleIn, ctx: PairContext = Depends(active_pair),
+async def schedule(card_id: int, body: ScheduleIn, ctx: PairContext = Depends(special_pair),
                    session: AsyncSession = Depends(get_session)):
     unlock = await _require_unlocked(session, ctx, card_id)
     if body.at is not None and body.at.tzinfo is None:

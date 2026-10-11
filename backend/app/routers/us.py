@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..content.profile import PROFILE_KEYS, PROFILE_SECTIONS
 from ..db import get_session
-from ..deps import PairContext, active_pair, today_date
+from ..deps import PairContext, active_pair, today_date, special_pair
 from ..models import PairDate, PartnerNote, ProfileFact, Reminder, User, utcnow
 from ..push import display_name, notify
 
@@ -108,7 +108,7 @@ async def person(ctx: PairContext = Depends(active_pair), session: AsyncSession 
 
 
 @router.put("/person/me")
-async def set_fact(body: FactIn, ctx: PairContext = Depends(active_pair),
+async def set_fact(body: FactIn, ctx: PairContext = Depends(special_pair),
                    session: AsyncSession = Depends(get_session)) -> dict:
     """Заполнить поле «о себе». Пустое значение — очистить."""
     if body.key not in PROFILE_KEYS:

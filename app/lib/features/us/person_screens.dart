@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:go_router/go_router.dart';
 
+import '../auth/consent_screen.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
@@ -351,10 +352,19 @@ class AboutMeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final person = ref.watch(personProvider);
+    final needConsent = ref.watch(meProvider).valueOrNull?['special_ok'] == false;
     return Scaffold(
       appBar: AppBar(title: Text('О себе', style: display(22))),
       body: SafeArea(
-        child: person.when(
+        child: needConsent
+            ? ListView(padding: const EdgeInsets.all(20), children: const [
+                SpecialConsentCard(
+                  title: 'Памятка для партнёра',
+                  text: 'Размеры, любимое, аллергии и ограничения — это личное, часть сведений о здоровье. '
+                      'Увидит только твой партнёр. Чтобы сохранять их, нужно твоё согласие.',
+                ),
+              ])
+            : person.when(
           skipLoadingOnRefresh: true,
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Center(child: Text(errorText(e), style: const TextStyle(color: Color(0xFFF5A894)))),

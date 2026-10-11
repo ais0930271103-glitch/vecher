@@ -13,7 +13,7 @@ from sqlalchemy.orm import aliased
 
 from ..content.wishes import CARDS, DECKS
 from ..db import get_session
-from ..deps import PairContext, active_pair, today_date
+from ..deps import PairContext, active_pair, today_date, special_pair
 from ..models import PlanUnlock, WishCard, WishSwipe, WishView, utcnow
 from ..push import notify
 from .today import mark_activity
@@ -165,7 +165,7 @@ async def decks(ctx: PairContext = Depends(active_pair), session: AsyncSession =
 async def next_cards(
     deck: str,
     limit: int = Query(20, ge=1, le=50),
-    ctx: PairContext = Depends(active_pair),
+    ctx: PairContext = Depends(special_pair),
     session: AsyncSession = Depends(get_session),
 ) -> list[CardOut]:
     """Карточки, которые я ещё не листал. Сначала те, что партнёр уже пролистал, —
@@ -190,7 +190,7 @@ async def next_cards(
 @router.post("/swipe", response_model=SwipeOut)
 async def swipe(
     body: SwipeIn,
-    ctx: PairContext = Depends(active_pair),
+    ctx: PairContext = Depends(special_pair),
     session: AsyncSession = Depends(get_session),
     day: date = Depends(today_date),
 ) -> SwipeOut:
@@ -228,7 +228,7 @@ async def swipe(
 
 
 @router.get("/matches", response_model=list[MatchOut])
-async def matches(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)):
+async def matches(ctx: PairContext = Depends(special_pair), session: AsyncSession = Depends(get_session)):
     """Взаимные желания. Открытие списка снимает пометку «новое»."""
     found = await _matches(session, ctx)
     seen = await _seen_at(session, ctx)

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_session
-from ..consent import CONSENT_KINDS, CONSENT_VERSION
+from ..consent import CONSENT_VERSION
 from ..deps import has_consent
 from ..erase import erase_user
 from ..models import Consent, LoginCode, PairMember, User
@@ -44,14 +44,21 @@ class MeOut(BaseModel):
     id: str
     email: str
     display_name: str | None
-    consent_ok: bool = True
+    consent_ok: bool = True    # общее согласие (без него — экран согласия при входе)
+    special_ok: bool = False   # согласие на интимное и здоровье (спрашиваем в карточках и анкете)
     consent_version: str = CONSENT_VERSION
 
 
 class ConsentIn(BaseModel):
     version: str
-    personal: bool
-    special: bool
+    personal: bool = False
+    special: bool = False
+
+
+async def _me_out(session: AsyncSession, user: User) -> MeOut:
+    return MeOut(id=user.id, email=user.email, display_name=user.display_name,
+                 consent_ok=await has_consent(session, user.id),
+                 special_ok=await has_consent(session, user.id, ("special",)))
 
 
 @router.post("/request-code")
@@ -125,26 +132,26 @@ async def verify(body: CodeVerify, session: AsyncSession = Depends(get_session))
 
 @router.get("/me", response_model=MeOut)
 async def me(user: User = Depends(current_user), session: AsyncSession = Depends(get_session)) -> MeOut:
-    return MeOut(id=user.id, email=user.email, display_name=user.display_name,
-                 consent_ok=await has_consent(session, user.id))
+    return await _me_out(session, user)
 
 
 @router.post("/consent", response_model=MeOut)
 async def give_consent(body: ConsentIn, user: User = Depends(current_user),
                        session: AsyncSession = Depends(get_session)) -> MeOut:
-    """Два согласия: на обработку данных и отдельно — на сведения об интимной жизни и здоровье."""
+    """Согласия даются по отдельности: общее — при входе, на интимное и здоровье — когда понадобится."""
     if body.version != CONSENT_VERSION:
         raise HTTPException(status.HTTP_409_CONFLICT, "Текст согласия обновился — обнови приложение")
-    if not (body.personal and body.special):
-        raise HTTPException(422, "Без обоих согласий «Вечер» не сможет работать")
+    kinds = [k for k, given in (("personal", body.personal), ("special", body.special)) if given]
+    if not kinds:
+        raise HTTPException(422, "Отметь согласие, чтобы продолжить")
     have = set((await session.execute(
         select(Consent.kind).where(Consent.user_id == user.id, Consent.version == CONSENT_VERSION)
     )).scalars().all())
-    for kind in CONSENT_KINDS:
+    for kind in kinds:
         if kind not in have:
             session.add(Consent(user_id=user.id, kind=kind, version=CONSENT_VERSION))
     await session.commit()
-    return MeOut(id=user.id, email=user.email, display_name=user.display_name, consent_ok=True)
+    return await _me_out(session, user)
 
 
 @router.delete("/me")
@@ -178,5 +185,4 @@ async def set_my_name(body: NameIn, user: User = Depends(current_user),
         raise HTTPException(422, "Введи имя")
     user.display_name = name
     await session.commit()
-    return MeOut(id=user.id, email=user.email, display_name=user.display_name,
-                 consent_ok=await has_consent(session, user.id))
+    return await _me_out(session, user)

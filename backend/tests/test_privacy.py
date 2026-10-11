@@ -21,24 +21,35 @@ async def count(model, *where):
         return (await s.execute(select(func.count()).select_from(model).where(*where))).scalar_one()
 
 
-async def test_consent_required_before_pair_data(client):
+async def test_consent_personal_at_login_special_when_needed(client):
     h = await login(client, "new@example.ru", consent=False)
     me = (await client.get("/auth/me", headers=h)).json()
-    assert me["consent_ok"] is False and me["consent_version"] == CONSENT_VERSION
-    # Без согласия нельзя ни создать пару, ни работать с данными пары.
+    assert me["consent_ok"] is False and me["special_ok"] is False and me["consent_version"] == CONSENT_VERSION
+    # Без общего согласия нельзя ни создать пару, ни работать с данными пары.
     assert (await client.post("/pairs/invite", headers=h)).status_code == 403
     assert (await client.get("/today", headers=h)).status_code == 403
-    # Нужны оба согласия и актуальная версия текста.
-    bad = await client.post("/auth/consent", headers=h, json={"version": CONSENT_VERSION, "personal": True, "special": False})
-    assert bad.status_code == 422
-    old = await client.post("/auth/consent", headers=h, json={"version": "2000-01-01", "personal": True, "special": True})
+    assert (await client.post("/auth/consent", headers=h, json={"version": CONSENT_VERSION})).status_code == 422
+    old = await client.post("/auth/consent", headers=h, json={"version": "2000-01-01", "personal": True})
     assert old.status_code == 409
-    ok = await client.post("/auth/consent", headers=h, json={"version": CONSENT_VERSION, "personal": True, "special": True})
-    assert ok.status_code == 200 and ok.json()["consent_ok"] is True
-    assert (await client.post("/pairs/invite", headers=h)).status_code == 200
-    # При повторном входе приложение знает, что согласие уже есть.
+    ok = await client.post("/auth/consent", headers=h, json={"version": CONSENT_VERSION, "personal": True})
+    assert ok.status_code == 200 and ok.json()["consent_ok"] is True and ok.json()["special_ok"] is False
     code = (await client.post("/auth/request-code", json={"email": "new@example.ru"})).json()["dev_code"]
     assert (await client.post("/auth/verify", json={"email": "new@example.ru", "code": code})).json()["has_consent"] is True
+
+    # С партнёром: вопрос дня и список колод доступны, а карточки, совпадения, планы и анкета — после
+    # отдельного согласия на сведения об интимной жизни и здоровье.
+    code = (await client.post("/pairs/invite", headers=h)).json()["invite_code"]
+    hb = await login(client, "partner@example.ru")
+    assert (await client.post("/pairs/join", headers=hb, json={"code": code})).status_code == 200
+    assert (await client.get("/today", headers=h)).status_code == 200
+    assert (await client.get("/wishes/decks", headers=h)).status_code == 200
+    assert (await client.get("/wishes/decks/romance/next", headers=h)).status_code == 403
+    assert (await client.get("/wishes/matches", headers=h)).status_code == 403
+    assert (await client.put("/person/me", headers=h, json={"key": "flowers", "value": "пионы"})).status_code == 403
+    sp = await client.post("/auth/consent", headers=h, json={"version": CONSENT_VERSION, "special": True})
+    assert sp.json()["special_ok"] is True
+    assert (await client.get("/wishes/decks/romance/next", headers=h)).status_code == 200
+    assert (await client.put("/person/me", headers=h, json={"key": "flowers", "value": "пионы"})).status_code == 200
 
 
 async def test_push_settings_off_and_private(client):

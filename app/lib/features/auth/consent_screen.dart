@@ -7,11 +7,21 @@ import '../../core/privacy.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 
-/// Версия текста ниже. Должна совпадать с backend/app/consent.py.
+/// Версия текста согласия. Должна совпадать с backend/app/consent.py.
 const consentVersion = '2026-10-11';
 
-/// Согласие на обработку персональных данных (152-ФЗ): общее и отдельное — на сведения
-/// об интимной жизни и здоровье (ст. 10). Без обоих приложение не работает.
+/// Кто я и какие согласия уже дал: GET /auth/me.
+final meProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final r = await ref.read(dioProvider).get('/auth/me');
+  return Map<String, dynamic>.from(r.data as Map);
+});
+
+void _openDetails(BuildContext context) => Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const ConsentDetailsScreen()),
+    );
+
+/// Первый экран после входа: коротко и по-человечески, полный текст — по ссылке.
+/// Согласие на интимное и здоровье спрашиваем позже, когда оно понадобится (SpecialConsentCard).
 class ConsentScreen extends ConsumerStatefulWidget {
   const ConsentScreen({super.key});
 
@@ -20,8 +30,7 @@ class ConsentScreen extends ConsumerStatefulWidget {
 }
 
 class _ConsentScreenState extends ConsumerState<ConsentScreen> {
-  bool _personal = false;
-  bool _special = false;
+  bool _agree = false;
   bool _busy = false;
   String? _error;
 
@@ -33,8 +42,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     try {
       final r = await ref.read(dioProvider).post('/auth/consent', data: {
         'version': consentVersion,
-        'personal': _personal,
-        'special': _special,
+        'personal': true,
       });
       if (!mounted) return;
       context.go((r.data as Map)['display_name'] == null ? '/name' : '/today');
@@ -45,7 +53,7 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
     }
   }
 
-  Future<void> _decline() async {
+  Future<void> _leave() async {
     await signOut(ref.read(dioProvider));
     if (mounted) context.go('/welcome');
   }
@@ -53,126 +61,213 @@ class _ConsentScreenState extends ConsumerState<ConsentScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: Column(children: [
-          Expanded(
-            child: ListView(padding: const EdgeInsets.fromLTRB(24, 32, 24, 12), children: [
-              Text('Твои данные', style: display(32)),
-              const SizedBox(height: 8),
-              const Text(
-                '«Вечер» — про близость, поэтому здесь будет личное. Расскажем честно, что храним и зачем.',
-                style: TextStyle(color: VColors.soft, fontSize: 16),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(18),
-                decoration: cardBox(),
-                child: const _ConsentText(),
-              ),
-              const SizedBox(height: 16),
-              _Check(
-                value: _personal,
-                onChanged: (v) => setState(() => _personal = v),
-                text: 'Соглашаюсь на обработку моих персональных данных для работы «Вечера»',
-              ),
-              _Check(
-                value: _special,
-                onChanged: (v) => setState(() => _special = v),
-                text: 'Отдельно соглашаюсь на обработку сведений об интимной жизни и здоровье '
-                    '(ответы, выборы в карточках желаний, аллергии и ограничения в анкете)',
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!, style: const TextStyle(color: VColors.coral)),
-              ],
-            ]),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
+      body: NightBackground(
+        strong: false,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              const Spacer(),
+              const Center(child: Emblem(size: 130)),
+              const SizedBox(height: 20),
+              Text('Здесь будет личное —\nи оно останется вашим',
+                  textAlign: TextAlign.center, style: display(26)),
+              const SizedBox(height: 28),
+              const _Promise(
+                icon: Icons.nightlight_round,
+                text: 'Партнёр видит твой выбор, только если он совпал с его выбором',
+              ),
+              const _Promise(
+                icon: Icons.lock_outline,
+                text: 'Храним в России. Не продаём и не показываем рекламу',
+              ),
+              const _Promise(
+                icon: Icons.delete_outline,
+                text: 'Удалить всё можно одной кнопкой в настройках',
+              ),
+              const Spacer(),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => setState(() => _agree = !_agree),
+                child: Row(children: [
+                  Checkbox(
+                    value: _agree,
+                    onChanged: (v) => setState(() => _agree = v ?? false),
+                    activeColor: VColors.gold,
+                    checkColor: VColors.ink,
+                  ),
+                  const Expanded(
+                    child: Text('Соглашаюсь на обработку данных', style: TextStyle(fontSize: 15)),
+                  ),
+                  TextButton(
+                    onPressed: () => _openDetails(context),
+                    child: const Text('подробнее', style: TextStyle(color: VColors.gold)),
+                  ),
+                ]),
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(_error!, style: const TextStyle(color: VColors.coral)),
+                ),
+              const SizedBox(height: 8),
               GoldButton(
-                onPressed: _personal && _special && !_busy ? _accept : null,
-                child: Text(_busy ? 'Сохраняем…' : 'Продолжить'),
+                onPressed: _agree && !_busy ? _accept : null,
+                child: Text(_busy ? 'Минутку…' : 'Продолжить'),
               ),
               TextButton(
-                onPressed: _busy ? null : _decline,
-                child: const Text('Не соглашаюсь — выйти', style: TextStyle(color: VColors.muted)),
+                onPressed: _busy ? null : _leave,
+                child: const Text('Выйти', style: TextStyle(color: VColors.muted)),
               ),
             ]),
           ),
-        ]),
+        ),
       ),
     );
   }
 }
 
-class _Check extends StatelessWidget {
-  const _Check({required this.value, required this.onChanged, required this.text});
-  final bool value;
-  final ValueChanged<bool> onChanged;
+class _Promise extends StatelessWidget {
+  const _Promise({required this.icon, required this.text});
+  final IconData icon;
   final String text;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Checkbox(
-            value: value,
-            onChanged: (v) => onChanged(v ?? false),
-            activeColor: VColors.gold,
-            checkColor: VColors.ink,
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(text, style: const TextStyle(fontSize: 15, height: 1.35)),
-            ),
-          ),
-        ]),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(color: VColors.card2, borderRadius: BorderRadius.circular(12)),
+          child: Icon(icon, color: VColors.gold, size: 20),
+        ),
+        const SizedBox(width: 14),
+        Expanded(child: Text(text, style: const TextStyle(color: VColors.soft, fontSize: 15, height: 1.35))),
+      ]),
     );
   }
 }
 
-/// Текст согласия. Черновик — перед публикацией показать юристу.
-class _ConsentText extends StatelessWidget {
-  const _ConsentText();
+/// Согласие на сведения об интимной жизни и здоровье — в момент, когда оно нужно:
+/// перед карточками желаний и перед анкетой «о себе».
+class SpecialConsentCard extends ConsumerStatefulWidget {
+  const SpecialConsentCard({super.key, required this.title, required this.text});
+  final String title;
+  final String text;
 
-  static const _h = TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: VColors.goldText);
-  static const _p = TextStyle(fontSize: 14, height: 1.45, color: VColors.text2);
+  @override
+  ConsumerState<SpecialConsentCard> createState() => _SpecialConsentCardState();
+}
+
+class _SpecialConsentCardState extends ConsumerState<SpecialConsentCard> {
+  bool _agree = false;
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _accept() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(dioProvider).post('/auth/consent', data: {'version': consentVersion, 'special': true});
+      ref.invalidate(meProvider);
+    } catch (e) {
+      if (mounted) setState(() => _error = errorText(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    Widget h(String t) => Padding(padding: const EdgeInsets.only(top: 12, bottom: 4), child: Text(t, style: _h));
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+      decoration: glowBox(),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.favorite_border, color: VColors.gold, size: 28),
+        const SizedBox(height: 10),
+        Text(widget.title, style: display(22)),
+        const SizedBox(height: 8),
+        Text(widget.text, style: const TextStyle(color: VColors.soft, fontSize: 15, height: 1.4)),
+        const SizedBox(height: 12),
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => setState(() => _agree = !_agree),
+          child: Row(children: [
+            Checkbox(
+              value: _agree,
+              onChanged: (v) => setState(() => _agree = v ?? false),
+              activeColor: VColors.gold,
+              checkColor: VColors.ink,
+            ),
+            const Expanded(child: Text('Согласен(на)', style: TextStyle(fontSize: 15))),
+            TextButton(
+              onPressed: () => _openDetails(context),
+              child: const Text('подробнее', style: TextStyle(color: VColors.gold)),
+            ),
+          ]),
+        ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(_error!, style: const TextStyle(color: VColors.coral)),
+          ),
+        GoldButton(
+          height: 50,
+          onPressed: _agree && !_busy ? _accept : null,
+          child: const Text('Продолжить'),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Полный текст согласия. Черновик — перед бетой показать юристу.
+class ConsentDetailsScreen extends StatelessWidget {
+  const ConsentDetailsScreen({super.key});
+
+  static const _h = TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: VColors.goldText);
+  static const _p = TextStyle(fontSize: 15, height: 1.5, color: VColors.text2);
+
+  @override
+  Widget build(BuildContext context) {
+    Widget h(String t) => Padding(padding: const EdgeInsets.only(top: 18, bottom: 6), child: Text(t, style: _h));
     Widget p(String t) => Text(t, style: _p);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      h('Кто обрабатывает'),
-      p('ИП Дордуков Артем Юрьевич, ИНН 290128994870. Вопросы и отзыв согласия — privacy@вечер.online.'),
-      h('Что храним'),
-      p('Почту и имя; ответы на вопросы дня и сигналы партнёру; выборы в карточках желаний; '
-          'анкету «о себе» (размеры, что любишь, аллергии и ограничения); заметки, даты, напоминания, '
-          'письма и сюрпризы; технический идентификатор телефона для уведомлений.'),
-      h('Особая категория'),
-      p('Выборы в карточках желаний и часть ответов — это сведения об интимной жизни, аллергии и '
-          'ограничения — сведения о здоровье. На них нужно отдельное согласие.'),
-      h('Зачем'),
-      p('Только чтобы «Вечер» работал для вашей пары: показывать совпадения, вопросы, планы, '
-          'памятку о партнёре и присылать уведомления. Не продаём, не показываем рекламодателям.'),
-      h('Кто видит'),
-      p('Твой выбор в карточке партнёр увидит, только если он совпал с его выбором. Тихие желания и '
-          'личные заметки видишь только ты. Анкету «о себе» видит партнёр.'),
-      h('Где хранится'),
-      p('На серверах в России. Уведомления доставляет сервис Google Firebase: туда уходит только '
-          'идентификатор телефона и короткий текст без подробностей. В настройках можно включить '
-          'уведомления без текста или выключить их совсем.'),
-      h('Сколько и как отозвать'),
-      p('Пока у тебя есть аккаунт. Отозвать согласие — значит удалить аккаунт: «Пара» → «Настройки» → '
-          '«Удалить аккаунт» или письмом на privacy@вечер.online. Данные удаляются сразу и полностью.'),
-    ]);
+    return Scaffold(
+      appBar: AppBar(title: Text('Согласие на обработку данных', style: display(18))),
+      body: SafeArea(
+        child: ListView(padding: const EdgeInsets.fromLTRB(22, 0, 22, 32), children: [
+          p('Версия от 11.10.2026.'),
+          h('Кто обрабатывает'),
+          p('ИП Дордуков Артем Юрьевич, ИНН 290128994870. Вопросы и отзыв согласия — privacy@вечер.online.'),
+          h('Какие данные'),
+          p('Почта и имя; ответы на вопросы дня и сигналы партнёру; заметки, важные даты, напоминания, '
+              'письма и сюрпризы; технический идентификатор телефона для уведомлений.'),
+          h('Сведения об интимной жизни и здоровье'),
+          p('Выборы в карточках желаний, планы к совпадениям и анкета «о себе» (в том числе аллергии и '
+              'ограничения) относятся к особой категории данных. На них мы отдельно спрашиваем согласие — '
+              'когда ты впервые открываешь карточки или анкету. Без него остальной «Вечер» работает.'),
+          h('Зачем'),
+          p('Только чтобы «Вечер» работал для вашей пары: показывать вопросы, совпадения, планы, '
+              'памятку о партнёре и присылать уведомления. Данные не продаются и не передаются рекламодателям.'),
+          h('Кто видит'),
+          p('Твой выбор в карточке партнёр видит, только если он совпал с его выбором. Тихие желания и личные '
+              'заметки видишь только ты. Анкету «о себе» видит твой партнёр.'),
+          h('Где хранится'),
+          p('На серверах в России. Уведомления доставляет сервис Google Firebase Cloud Messaging: туда '
+              'передаются идентификатор телефона и короткий текст уведомления без подробностей. В настройках '
+              'можно включить уведомления без текста или выключить их.'),
+          h('Что мы делаем с данными'),
+          p('Сбор, запись, хранение, уточнение, использование, передача партнёру по паре в описанных выше '
+              'пределах, удаление.'),
+          h('Срок и отзыв'),
+          p('Пока у тебя есть аккаунт. Отозвать согласие — значит удалить аккаунт: «Пара» → «Настройки» → '
+              '«Удалить аккаунт» или письмом на privacy@вечер.online. Данные удаляются сразу и полностью.'),
+        ]),
+      ),
+    );
   }
 }
