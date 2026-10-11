@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_session
-from ..deps import PairContext, active_pair, today_date
+from ..deps import PairContext, active_pair, prep_pair, today_date
 from ..models import Activity, Letter, QuietWish, Surprise, User, WishCard, WishSwipe, utcnow
 from ..push import local_when, notify
 from .wishes import ensure_cards
@@ -145,7 +145,7 @@ async def solo(ctx: PairContext = Depends(active_pair), session: AsyncSession = 
 # ---------- письма ----------
 
 @router.post("/letters", response_model=SentLetterOut, status_code=201)
-async def send_letter(body: LetterIn, ctx: PairContext = Depends(active_pair),
+async def send_letter(body: LetterIn, ctx: PairContext = Depends(prep_pair),
                       session: AsyncSession = Depends(get_session)):
     text = body.text.strip()
     if not text:

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -258,38 +260,109 @@ class _NoPairState extends ConsumerState<_NoPair> {
   }
 }
 
-class _Waiting extends StatelessWidget {
+final _prepProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final r = await ref.read(dioProvider).get('/pairs/prep');
+  return Map<String, dynamic>.from(r.data as Map);
+});
+
+final _prepTodayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final r = await ref.read(dioProvider).get('/today');
+  return Map<String, dynamic>.from(r.data as Map);
+});
+
+/// Ждём партнёра — и готовим «Вечер»: карточки, «о себе», вопрос дня, письмо в первое утро.
+class _Waiting extends ConsumerStatefulWidget {
   const _Waiting({required this.code, this.url});
   final String? code;
   final String? url;
 
-  String get _pretty => code == null ? '' : '${code!.substring(0, 4)}-${code!.substring(4)}';
+  @override
+  ConsumerState<_Waiting> createState() => _WaitingState();
+}
+
+class _WaitingState extends ConsumerState<_Waiting> {
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    // Подготовка обновляется, а как только партнёр примет приглашение — откроется «Сегодня».
+    _poll = Timer.periodic(const Duration(seconds: 10), (_) {
+      ref.invalidate(_prepProvider);
+      ref.invalidate(pairProvider);
+    });
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  String get _pretty {
+    final code = widget.code;
+    return code == null ? '' : '${code.substring(0, 4)}-${code.substring(4)}';
+  }
 
   String get _message => [
         'Присоединяйся ко мне в «Вечере» — это пространство только для нас двоих.',
-        if (url != null) url!,
+        if (widget.url != null) widget.url!,
         'Если ссылка не откроется, введи в приложении код $_pretty',
       ].join('\n');
 
+  void _toast(String t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+
+  Future<void> _answer(String? question) async {
+    final text = await askText(context,
+        title: question ?? 'Вопрос дня', hint: 'Твой ответ', maxLength: 500, maxLines: 4);
+    if (text == null || text.trim().isEmpty) return;
+    try {
+      await ref.read(dioProvider).post('/today/answer', data: {'text': text.trim()});
+      ref.invalidate(_prepProvider);
+      ref.invalidate(_prepTodayProvider);
+      _toast('Готово — партнёр увидит ответ после своего');
+    } catch (e) {
+      _toast(errorText(e));
+    }
+  }
+
+  Future<void> _letter() async {
+    final text = await askText(context,
+        title: 'Письмо в первое утро', hint: 'Что ты хочешь сказать?', maxLength: 2000, maxLines: 6);
+    if (text == null || text.trim().isEmpty) return;
+    try {
+      await ref.read(dioProvider).post('/letters', data: {'text': text.trim()});
+      ref.invalidate(_prepProvider);
+      _toast('Письмо ждёт — партнёр получит его утром в «Вечере»');
+    } catch (e) {
+      _toast(errorText(e));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final prep = ref.watch(_prepProvider).valueOrNull;
+    final today = ref.watch(_prepTodayProvider).valueOrNull;
+    final question = (today?['question'] as Map?)?['text'] as String?;
+    final done = prep?['done'] as int? ?? 0;
+    final swiped = prep?['swiped'] as int? ?? 0;
+    final about = prep?['about_me'] as int? ?? 0;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Ждём партнёра', style: display(28)),
+      Text('Подготовь «Вечер» для вас двоих', style: display(26)),
       const SizedBox(height: 8),
-      const Text('Отправь приглашение. Как только партнёр его примет, «Вечер» откроется для вас двоих.',
-          style: TextStyle(color: VColors.soft, fontSize: 16)),
-      const SizedBox(height: 20),
+      const Text('Пока партнёр не присоединился, всё, что ты сделаешь, будет ждать его здесь.',
+          style: TextStyle(color: VColors.soft, fontSize: 15, height: 1.4)),
+      const SizedBox(height: 18),
       _Card(
         highlight: true,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('Код приглашения', textAlign: TextAlign.center,
-              style: TextStyle(color: VColors.muted, fontSize: 13)),
-          const SizedBox(height: 6),
-          Text(_pretty,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 34, letterSpacing: 4, fontWeight: FontWeight.w700,
-                  color: VColors.goldText)),
-          const SizedBox(height: 16),
+          Row(children: [
+            const Expanded(
+              child: Text('Пригласи партнёра', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+            ),
+            Text(_pretty, style: const TextStyle(letterSpacing: 2, fontWeight: FontWeight.w700, color: VColors.goldText)),
+          ]),
+          const SizedBox(height: 12),
           GoldButton(
             onPressed: () => Share.share(_message, subject: 'Приглашение в «Вечер»'),
             child: const Row(mainAxisSize: MainAxisSize.min, children: [
@@ -298,22 +371,111 @@ class _Waiting extends StatelessWidget {
               Text('Отправить приглашение'),
             ]),
           ),
-          const SizedBox(height: 8),
           TextButton.icon(
             onPressed: () {
               Clipboard.setData(ClipboardData(text: _message));
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('Скопировано — отправь партнёру')));
+              _toast('Скопировано — отправь партнёру');
             },
             icon: const Icon(Icons.copy, size: 18, color: VColors.muted),
             label: const Text('Скопировать', style: TextStyle(color: VColors.muted)),
           ),
         ]),
       ),
-      const SizedBox(height: 12),
-      const Text('Потяни вниз, чтобы обновить.',
-          textAlign: TextAlign.center, style: TextStyle(color: VColors.muted, fontSize: 13)),
+      const SizedBox(height: 20),
+      Row(children: [
+        const Expanded(child: SectionLabel('Пока ждём', color: VColors.label)),
+        Text('$done из 4', style: const TextStyle(color: VColors.goldText, fontSize: 13)),
+      ]),
+      const SizedBox(height: 8),
+      ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(
+          value: done / 4, minHeight: 6, backgroundColor: const Color(0x1FFFFFFF), color: VColors.gold),
+      ),
+      const SizedBox(height: 14),
+      _PrepStep(
+        icon: Icons.style_outlined,
+        title: 'Пролистай первые карточки',
+        subtitle: 'Пролистано: $swiped из 5 · совпадения откроются, как только партнёр тоже полистает',
+        done: swiped >= 5,
+        onTap: () => context.go('/wishes'),
+      ),
+      _PrepStep(
+        icon: Icons.person_outline,
+        title: 'Расскажи о себе',
+        subtitle: 'Заполнено: $about из 3 · памятка для партнёра будет готова с первого дня',
+        done: about >= 3,
+        onTap: () async {
+          await context.push('/us/me');
+          ref.invalidate(_prepProvider);
+        },
+      ),
+      _PrepStep(
+        icon: Icons.chat_bubble_outline,
+        title: 'Ответь на вопрос дня',
+        subtitle: prep?['answered'] == true ? 'Ответ ждёт партнёра' : (question ?? 'Партнёр увидит ответ после своего'),
+        done: prep?['answered'] == true,
+        onTap: prep?['answered'] == true ? null : () => _answer(question),
+      ),
+      _PrepStep(
+        icon: Icons.mail_outline,
+        title: 'Письмо в первое утро',
+        subtitle: prep?['letter'] == true
+            ? 'Письмо ждёт партнёра'
+            : 'Партнёр получит его утром, когда будет в «Вечере»',
+        done: prep?['letter'] == true,
+        onTap: prep?['letter'] == true ? null : _letter,
+      ),
     ]);
+  }
+}
+
+class _PrepStep extends StatelessWidget {
+  const _PrepStep({required this.icon, required this.title, required this.subtitle, required this.done, this.onTap});
+  final IconData icon;
+  final String title, subtitle;
+  final bool done;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: VColors.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(color: done ? const Color(0x4DF3C98B) : const Color(0x14FFFFFF)),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: done ? const Color(0xFF3A3020) : VColors.card2,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(done ? Icons.check : icon, color: done ? VColors.gold : VColors.lavender),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Text(subtitle, style: const TextStyle(color: VColors.muted, fontSize: 13, height: 1.3)),
+                ]),
+              ),
+              if (onTap != null) const Icon(Icons.chevron_right, color: VColors.muted),
+            ]),
+          ),
+        ),
+      ),
+    );
   }
 }
 

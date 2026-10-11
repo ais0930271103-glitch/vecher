@@ -114,6 +114,8 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         InvitesSection(partnerName: widget.partnerName),
         _IncomingRadar(signals: (t['radar_incoming'] as List).cast<Map>(), partnerName: widget.partnerName),
         _FromPartner(partnerName: widget.partnerName),
+        if ((t['partner_swiped'] as int? ?? 0) > 0 && (t['my_swiped'] as int? ?? 0) == 0)
+          _CardsHint(partnerName: widget.partnerName, count: t['partner_swiped'] as int),
         const _Upcoming(),
         _MyMood(
           current: (t['my_mood'] as Map?)?['kind'] as String?,
@@ -892,6 +894,45 @@ class _PartnerMood extends StatelessWidget {
             ]),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// Партнёр уже листал карточки, а ты ещё нет — у вас могут быть совпадения (чужие «да» не раскрываем).
+class _CardsHint extends StatelessWidget {
+  const _CardsHint({this.partnerName, required this.count});
+  final String? partnerName;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => context.go('/wishes'),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: glowBox(radius: 20),
+            child: Row(children: [
+              const Icon(Icons.style_outlined, color: VColors.gold),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${partnerName ?? 'Партнёр'} уже пролистал(а) карточки: $count',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  const Text('Полистай и ты — у вас уже могут быть совпадения',
+                      style: TextStyle(color: VColors.soft, fontSize: 13)),
+                ]),
+              ),
+              const Icon(Icons.chevron_right, color: VColors.muted),
+            ]),
+          ),
+        ),
       ),
     );
   }

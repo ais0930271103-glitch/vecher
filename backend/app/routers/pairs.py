@@ -1,16 +1,16 @@
 import secrets
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import get_session
-from ..deps import PairContext, active_pair, consented_user
+from ..deps import PairContext, active_pair, consented_user, prep_pair, today_date
 from ..erase import erase_pair
-from ..models import Pair, PairMember, PairPause, User
+from ..models import DailyAnswer, Letter, Pair, PairMember, PairPause, ProfileFact, User, WishSwipe
 from ..security import current_user
 from ..push import notify
 
@@ -175,3 +175,27 @@ async def preview_invite(code: str, user: User = Depends(current_user),
     if inviter is not None and inviter.id == user.id:
         raise HTTPException(status.HTTP_409_CONFLICT, "Это твоё собственное приглашение")
     return InvitePreview(inviter_name=inviter.display_name if inviter else None)
+
+
+class PrepOut(BaseModel):
+    swiped: int        # карточек пролистано
+    about_me: int      # полей «о себе» заполнено
+    answered: bool     # ответ на вопрос дня есть
+    letter: bool       # письмо партнёру написано
+    done: int          # шагов из 4 выполнено
+
+
+@router.get("/prep", response_model=PrepOut)
+async def prep(ctx: PairContext = Depends(prep_pair), session: AsyncSession = Depends(get_session),
+               day: date = Depends(today_date)):
+    """«Подготовь „Вечер“ для вас двоих» — пока партнёр не присоединился."""
+    swiped = (await session.execute(select(func.count(WishSwipe.id)).where(
+        WishSwipe.pair_id == ctx.pair.id, WishSwipe.user_id == ctx.user.id))).scalar_one()
+    about = (await session.execute(select(func.count(ProfileFact.id)).where(
+        ProfileFact.user_id == ctx.user.id))).scalar_one()
+    answered = (await session.execute(select(DailyAnswer.id).where(
+        DailyAnswer.pair_id == ctx.pair.id, DailyAnswer.user_id == ctx.user.id, DailyAnswer.day == day))).first() is not None
+    letter = (await session.execute(select(Letter.id).where(
+        Letter.pair_id == ctx.pair.id, Letter.from_id == ctx.user.id))).first() is not None
+    done = sum([swiped >= 5, about >= 3, answered, letter])
+    return PrepOut(swiped=swiped, about_me=about, answered=answered, letter=letter, done=done)

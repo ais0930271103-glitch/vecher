@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..content.profile import PROFILE_KEYS, PROFILE_SECTIONS
 from ..db import get_session
-from ..deps import PairContext, active_pair, today_date, special_pair
+from ..deps import PairContext, active_pair, prep_pair, prep_special_pair, special_pair, today_date
 from ..models import PairDate, PartnerNote, ProfileFact, Reminder, User, utcnow
 from ..push import display_name, notify
 
@@ -89,9 +89,10 @@ def _sections(values: dict[str, str]) -> list[SectionOut]:
 
 
 @router.get("/person", response_model=PersonOut)
-async def person(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)):
-    partner = await session.get(User, ctx.partner_id)
-    mine, theirs = await _facts(session, ctx.user.id), await _facts(session, ctx.partner_id)
+async def person(ctx: PairContext = Depends(prep_pair), session: AsyncSession = Depends(get_session)):
+    partner = await session.get(User, ctx.partner_id) if ctx.partner_id else None
+    mine = await _facts(session, ctx.user.id)
+    theirs = await _facts(session, ctx.partner_id) if ctx.partner_id else {}
     notes = (await session.execute(
         select(PartnerNote)
         .where(PartnerNote.pair_id == ctx.pair.id, PartnerNote.author_id == ctx.user.id)
@@ -108,7 +109,7 @@ async def person(ctx: PairContext = Depends(active_pair), session: AsyncSession 
 
 
 @router.put("/person/me")
-async def set_fact(body: FactIn, ctx: PairContext = Depends(special_pair),
+async def set_fact(body: FactIn, ctx: PairContext = Depends(prep_special_pair),
                    session: AsyncSession = Depends(get_session)) -> dict:
     """Заполнить поле «о себе». Пустое значение — очистить."""
     if body.key not in PROFILE_KEYS:

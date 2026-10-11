@@ -13,7 +13,7 @@ from sqlalchemy.orm import aliased
 
 from ..content.wishes import ALL_CARDS, APP_MAX_LEVEL, DECKS, LEVELS
 from ..db import get_session
-from ..deps import PairContext, active_pair, today_date, special_pair
+from ..deps import PairContext, active_pair, prep_pair, prep_special_pair, special_pair, today_date
 from ..models import PairLevel, PlanUnlock, WishCard, WishSwipe, WishView, utcnow
 from ..push import notify
 from .today import mark_activity
@@ -180,7 +180,7 @@ def _match_out(card: WishCard, kind: str, at: datetime, seen: datetime | None = 
 # ---------- routes ----------
 
 @router.get("/decks", response_model=DecksOut)
-async def decks(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)) -> DecksOut:
+async def decks(ctx: PairContext = Depends(prep_pair), session: AsyncSession = Depends(get_session)) -> DecksOut:
     await ensure_cards(session)
     mine, theirs = await _levels(session, ctx)
     effective = _effective(mine, theirs)
@@ -218,7 +218,7 @@ async def decks(ctx: PairContext = Depends(active_pair), session: AsyncSession =
 
 
 @router.put("/level", response_model=LevelOut)
-async def set_level(body: LevelIn, ctx: PairContext = Depends(special_pair),
+async def set_level(body: LevelIn, ctx: PairContext = Depends(prep_special_pair),
                     session: AsyncSession = Depends(get_session)) -> LevelOut:
     """Мой уровень смелости. Партнёр не видит мой выбор — паре открывается меньший из двух."""
     if body.level not in LEVELS:
@@ -233,7 +233,7 @@ async def set_level(body: LevelIn, ctx: PairContext = Depends(special_pair),
     await session.commit()
     mine, theirs = await _levels(session, ctx)
     effective = _effective(mine, theirs)
-    if effective == "hot":
+    if effective == "hot" and ctx.partner_id:
         # Оба готовы к «Ночи» — сообщаем обоим один раз, без подробностей на экране блокировки.
         for uid in (ctx.user.id, ctx.partner_id):
             await notify(session, uid, "Вечер", "В «Вечере» открылось кое-что новое для вас двоих",
@@ -245,7 +245,7 @@ async def set_level(body: LevelIn, ctx: PairContext = Depends(special_pair),
 async def next_cards(
     deck: str,
     limit: int = Query(20, ge=1, le=50),
-    ctx: PairContext = Depends(special_pair),
+    ctx: PairContext = Depends(prep_special_pair),
     session: AsyncSession = Depends(get_session),
 ) -> list[CardOut]:
     """Карточки, которые я ещё не листал. Сначала те, что партнёр уже пролистал, —
@@ -272,7 +272,7 @@ async def next_cards(
 @router.post("/swipe", response_model=SwipeOut)
 async def swipe(
     body: SwipeIn,
-    ctx: PairContext = Depends(special_pair),
+    ctx: PairContext = Depends(prep_special_pair),
     session: AsyncSession = Depends(get_session),
     day: date = Depends(today_date),
 ) -> SwipeOut:
@@ -304,7 +304,7 @@ async def swipe(
     await session.commit()
 
     kind = match_kind(body.choice, theirs) if theirs else None
-    if kind:
+    if kind and ctx.partner_id:
         # Партнёр ответил раньше — сообщаем ему о совпадении (без текста карточки).
         await notify(session, ctx.partner_id, "Вечер", "У вас новое совпадение",
                      {"open": "matches"}, key=f"match:{ctx.pair.id}:{card.id}")

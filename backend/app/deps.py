@@ -71,3 +71,32 @@ async def special_pair(
     if not await has_consent(session, ctx.user.id, ("special",)):
         raise HTTPException(status.HTTP_403_FORBIDDEN, SPECIAL_CONSENT_DETAIL)
     return ctx
+
+
+async def prep_pair(
+    user: User = Depends(consented_user),
+    session: AsyncSession = Depends(get_session),
+) -> PairContext:
+    """Пара или приглашение, которое ждёт партнёра («Подготовь „Вечер“ для вас двоих»).
+
+    partner_id = "" пока партнёра нет: запросы по нему ничего не находят, уведомления не уходят.
+    """
+    member = (await session.execute(
+        select(PairMember).where(PairMember.user_id == user.id)
+    )).scalar_one_or_none()
+    pair = await session.get(Pair, member.pair_id) if member else None
+    if pair is None or pair.status not in ("active", "pending"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Сначала создай приглашение или соединись с партнёром")
+    partner_id = (await session.execute(
+        select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
+    )).scalar_one_or_none()
+    return PairContext(user=user, pair=pair, partner_id=partner_id or "")
+
+
+async def prep_special_pair(
+    ctx: PairContext = Depends(prep_pair),
+    session: AsyncSession = Depends(get_session),
+) -> PairContext:
+    if not await has_consent(session, ctx.user.id, ("special",)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, SPECIAL_CONSENT_DETAIL)
+    return ctx

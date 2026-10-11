@@ -10,8 +10,8 @@ from ..config import get_settings
 from ..content.moods import MOODS
 from ..content.questions import QUESTIONS
 from ..db import get_session
-from ..deps import PairContext, active_pair, today_date
-from ..models import Activity, DailyAnswer, DailyMood, Question, RadarSignal, utcnow
+from ..deps import PairContext, active_pair, prep_pair, today_date
+from ..models import Activity, DailyAnswer, DailyMood, Question, RadarSignal, WishSwipe, utcnow
 from ..push import display_name, notify
 
 router = APIRouter(tags=["today"])
@@ -128,6 +128,8 @@ class TodayOut(BaseModel):
     my_mood: MoodOut | None = None
     partner_mood: MoodOut | None = None
     mood_options: list[MoodOption] = []
+    my_swiped: int = 0       # сколько карточек я пролистал(а)
+    partner_swiped: int = 0  # и партнёр — для подсказки «у вас могут быть совпадения» (без самих выборов)
 
 
 class AnswerIn(BaseModel):
@@ -142,7 +144,7 @@ class RadarIn(BaseModel):
 
 @router.get("/today", response_model=TodayOut)
 async def get_today(
-    ctx: PairContext = Depends(active_pair),
+    ctx: PairContext = Depends(prep_pair),
     session: AsyncSession = Depends(get_session),
     day: date = Depends(today_date),
 ) -> TodayOut:
@@ -168,6 +170,10 @@ async def get_today(
             select(DailyMood).where(DailyMood.pair_id == ctx.pair.id, DailyMood.day == day)
         )).scalars()
     }
+    swiped = dict((await session.execute(
+        select(WishSwipe.user_id, func.count(WishSwipe.id)).where(WishSwipe.pair_id == ctx.pair.id)
+        .group_by(WishSwipe.user_id)
+    )).all())
     streak, complete = await pair_streak(session, ctx.pair.id, day)
     await session.commit()  # ensure_questions мог залить стартовые вопросы
     return TodayOut(
@@ -185,13 +191,15 @@ async def get_today(
         my_mood=_mood(moods.get(ctx.user.id), day, with_hint=False),
         partner_mood=_mood(moods.get(ctx.partner_id), day, with_hint=True),
         mood_options=[MoodOption(kind=k, label=v["label"]) for k, v in MOODS.items()],
+        my_swiped=swiped.get(ctx.user.id, 0),
+        partner_swiped=swiped.get(ctx.partner_id, 0),
     )
 
 
 @router.post("/today/answer", response_model=TodayOut)
 async def answer_today(
     body: AnswerIn,
-    ctx: PairContext = Depends(active_pair),
+    ctx: PairContext = Depends(prep_pair),
     session: AsyncSession = Depends(get_session),
     day: date = Depends(today_date),
 ) -> TodayOut:
@@ -210,7 +218,8 @@ async def answer_today(
     await mark_activity(session, ctx, day)
     await session.commit()
     name = await display_name(session, ctx.user.id)
-    await notify(session, ctx.partner_id, "Вечер", f"{name} ответил(а) на вопрос дня",
+    if ctx.partner_id:
+        await notify(session, ctx.partner_id, "Вечер", f"{name} ответил(а) на вопрос дня",
                  {"open": "today"}, key=f"answer:{ctx.pair.id}:{day}:{ctx.user.id}")
     return await get_today(ctx, session, day)
 
