@@ -35,6 +35,7 @@ const _refLabels = <String, String>{
   'letter': 'Письмо',
 };
 const _reactions = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
+const _hintKey = 'vecher_chat_hint_seen';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, this.attach});
@@ -46,7 +47,9 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _text = TextEditingController();
+  final _focus = FocusNode();
   final Map<String, Map<String, dynamic>> _byId = {};
+  bool _showHint = false;
   DateTime? _partnerReadAt;
   bool _hasMore = false;
   bool _loading = true;
@@ -60,6 +63,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void initState() {
     super.initState();
     _attach = widget.attach;
+    if (_attach != null) WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+    secureStorage.read(key: _hintKey).then((v) {
+      if (mounted && v == null) setState(() => _showHint = true);
+    });
     _refresh(markRead: true);
     // Мгновенная доставка появится вместе с сервером (Centrifugo); пока — раз в 4 секунды.
     _poll = Timer.periodic(const Duration(seconds: 4), (_) => _refresh());
@@ -69,6 +76,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _poll?.cancel();
     _text.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -163,6 +171,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _reply(Map<String, dynamic> m) {
+    if (m['deleted'] == true) return;
+    HapticFeedback.selectionClick();
+    setState(() => _replyTo = m);
+    _focus.requestFocus();
+  }
+
+  Future<void> _heart(Map<String, dynamic> m) async {
+    if (m['mine'] == true || m['deleted'] == true) return;
+    HapticFeedback.lightImpact();
+    try {
+      final r = await ref.read(dioProvider)
+          .post('/chat/${m['id']}/react', data: {'emoji': m['reaction'] == '❤️' ? null : '❤️'});
+      if (mounted) {
+        setState(() => _absorb({'messages': [r.data], 'partner_read_at': _partnerReadAt?.toIso8601String()}));
+      }
+    } catch (e) {
+      _toast(errorText(e));
+    }
+  }
+
+  void _hideHint() {
+    setState(() => _showHint = false);
+    secureStorage.write(key: _hintKey, value: '1');
+  }
+
   Future<void> _actions(Map<String, dynamic> m) async {
     if (m['deleted'] == true) return;
     final mine = m['mine'] == true;
@@ -214,7 +248,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final dio = ref.read(dioProvider);
     try {
       if (choice == 'reply') {
-        setState(() => _replyTo = m);
+        _reply(m);
       } else if (choice == 'copy') {
         await Clipboard.setData(ClipboardData(text: m['text'] as String));
         _toast('Скопировано');
@@ -245,7 +279,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         lastDay = day;
       }
       final read = _partnerReadAt != null && !_partnerReadAt!.isBefore(DateTime.parse(m['created_at'] as String));
-      items.add(_Bubble(m: m, at: at, read: read, onLongPress: () => _actions(m)));
+      items.add(Dismissible(
+        key: ValueKey('swipe-${m['id']}'),
+        direction: m['deleted'] == true ? DismissDirection.none : DismissDirection.startToEnd,
+        dismissThresholds: const {DismissDirection.startToEnd: 0.25},
+        confirmDismiss: (_) async {
+          _reply(m);
+          return false; // сообщение остаётся на месте — свайп только начинает ответ
+        },
+        background: const Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(padding: EdgeInsets.only(left: 8), child: Icon(Icons.reply, color: VColors.gold)),
+        ),
+        child: _Bubble(
+          m: m,
+          at: at,
+          read: read,
+          onLongPress: () => _actions(m),
+          onDoubleTap: () => _heart(m),
+        ),
+      ));
     }
 
     return Scaffold(
@@ -286,8 +339,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ],
                       ),
           ),
+          if (_showHint && msgs.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+              padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
+              decoration: BoxDecoration(color: VColors.card, borderRadius: BorderRadius.circular(14)),
+              child: Row(children: [
+                const Icon(Icons.lightbulb_outline, size: 18, color: VColors.gold),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Свайп вправо — ответить · двойное касание — ❤️ · удерживай — ещё',
+                      style: TextStyle(color: VColors.soft, fontSize: 13)),
+                ),
+                IconButton(icon: const Icon(Icons.close, size: 18, color: VColors.muted), onPressed: _hideHint),
+              ]),
+            ),
           _Composer(
             controller: _text,
+            focus: _focus,
             sending: _sending,
             attach: _attach,
             replyTo: _replyTo,
@@ -314,7 +383,8 @@ class _Empty extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.chat_bubble_outline, size: 40, color: VColors.gold),
           const SizedBox(height: 12),
-          Text(error ?? 'Здесь только вы двое. Напиши ${partnerName ?? 'партнёру'} что-нибудь тёплое.',
+          Text(error ?? 'Здесь только вы двое. Напиши ${partnerName ?? 'партнёру'} что-нибудь тёплое.\n\n'
+                  'Свайп вправо по сообщению — ответить, двойное касание — ❤️, удерживай — реакции и другое.',
               textAlign: TextAlign.center, style: const TextStyle(color: VColors.soft, height: 1.4)),
         ]),
       ),
@@ -334,11 +404,12 @@ class _DayLabel extends StatelessWidget {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.m, required this.at, required this.read, required this.onLongPress});
+  const _Bubble({required this.m, required this.at, required this.read, required this.onLongPress, this.onDoubleTap});
   final Map<String, dynamic> m;
   final DateTime at;
   final bool read;
   final VoidCallback onLongPress;
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -350,6 +421,7 @@ class _Bubble extends StatelessWidget {
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: onLongPress,
+        onDoubleTap: onDoubleTap,
         child: Stack(clipBehavior: Clip.none, children: [
           Container(
             constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
@@ -427,6 +499,7 @@ class _Bubble extends StatelessWidget {
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
+    required this.focus,
     required this.sending,
     required this.attach,
     required this.replyTo,
@@ -436,6 +509,7 @@ class _Composer extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final FocusNode focus;
   final bool sending;
   final Map? attach;
   final Map<String, dynamic>? replyTo;
@@ -481,6 +555,7 @@ class _Composer extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focus,
                 minLines: 1,
                 maxLines: 5,
                 maxLength: 2000,

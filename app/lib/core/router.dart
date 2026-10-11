@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -115,13 +117,25 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
     super.initState();
     // Человек вошёл — подключаем push (разрешение спросит система).
     initPush(ref.read(dioProvider));
+    // Значок непрочитанных на «Чат» — раз в 10 секунд (мгновенно — с сервером).
+    _unreadPoll = Timer.periodic(const Duration(seconds: 10), (_) => ref.invalidate(chatUnreadProvider));
   }
 
-  static const _tabs = <(IconData, String)>[
-    (Icons.nightlight_outlined, 'Сегодня'),
-    (Icons.style_outlined, 'Вместе'),
-    (Icons.person_outline, 'Я'),
-    (Icons.favorite_border, 'Пара'),
+  Timer? _unreadPoll;
+
+  @override
+  void dispose() {
+    _unreadPoll?.cancel();
+    super.dispose();
+  }
+
+  // В меню 5 пунктов: «Чат» посередине открывает переписку на весь экран (поверх вкладок).
+  static const _tabs = <(IconData, String, int?)>[
+    (Icons.nightlight_outlined, 'Сегодня', 0),
+    (Icons.style_outlined, 'Вместе', 1),
+    (Icons.chat_bubble_outline, 'Чат', null),
+    (Icons.person_outline, 'Я', 2),
+    (Icons.favorite_border, 'Пара', 3),
   ];
 
   @override
@@ -139,25 +153,21 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
           child: SizedBox(
             height: 64,
             child: Row(children: [
-              for (var i = 0; i < _tabs.length; i++)
+              for (final t in _tabs)
                 Expanded(
-                  child: InkWell(
-                    onTap: () => shell.goBranch(i, initialLocation: i == shell.currentIndex),
-                    child: Semantics(
-                      selected: i == shell.currentIndex,
-                      button: true,
-                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Icon(_tabs[i].$1,
-                            size: 24, color: i == shell.currentIndex ? VColors.gold : VColors.navInactive),
-                        const SizedBox(height: 4),
-                        Text(_tabs[i].$2,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: i == shell.currentIndex ? FontWeight.w600 : FontWeight.w400,
-                              color: i == shell.currentIndex ? VColors.gold : VColors.navInactive,
-                            )),
-                      ]),
-                    ),
+                  child: _NavItem(
+                    icon: t.$1,
+                    label: t.$2,
+                    selected: t.$3 == shell.currentIndex,
+                    badge: t.$3 == null ? ref.watch(chatUnreadProvider).valueOrNull ?? 0 : 0,
+                    onTap: () {
+                      final branch = t.$3;
+                      if (branch == null) {
+                        context.push('/chat');
+                      } else {
+                        shell.goBranch(branch, initialLocation: branch == shell.currentIndex);
+                      }
+                    },
                   ),
                 ),
             ]),
@@ -187,4 +197,48 @@ class _InviteLinkState extends State<_InviteLink> {
 
   @override
   Widget build(BuildContext context) => const Scaffold(body: Center(child: CircularProgressIndicator()));
+}
+
+class _NavItem extends StatelessWidget {
+  const _NavItem({required this.icon, required this.label, required this.selected, required this.onTap, this.badge = 0});
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final int badge;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? VColors.gold : VColors.navInactive;
+    return InkWell(
+      onTap: onTap,
+      child: Semantics(
+        selected: selected,
+        button: true,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Stack(clipBehavior: Clip.none, children: [
+            Icon(icon, size: 24, color: color),
+            if (badge > 0)
+              Positioned(
+                right: -10,
+                top: -6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(color: VColors.coral, borderRadius: BorderRadius.circular(9)),
+                  child: Text(badge > 9 ? '9+' : '$badge',
+                      style: const TextStyle(color: VColors.ink, fontSize: 10, fontWeight: FontWeight.w700)),
+                ),
+              ),
+          ]),
+          const SizedBox(height: 4),
+          Text(label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                color: color,
+              )),
+        ]),
+      ),
+    );
+  }
 }
