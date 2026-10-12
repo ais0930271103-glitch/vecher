@@ -5,9 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'router.dart';
+import 'top_banner.dart';
 
 /// Сообщения «в приложении» (когда push приходит, пока «Вечер» открыт).
 final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
+/// Открыт ли экран чата (его ставит ChatScreen) — чтобы не показывать плашку о сообщении поверх самого чата.
+bool chatOnScreen = false;
 
 bool _started = false;
 String? _token;
@@ -40,14 +44,18 @@ Future<void> initPush(Dio dio) async {
     }
     fm.onTokenRefresh.listen((t) => register(t).catchError((_) {}));
 
-    // Пока приложение открыто — показываем коротко внизу экрана.
+    // Пока приложение открыто — плашка сверху (внизу она закрывала поле ввода в чате).
     FirebaseMessaging.onMessage.listen((m) {
       final body = m.notification?.body;
       if (body == null) return;
-      scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-        content: Text(body),
-        action: SnackBarAction(label: 'Открыть', onPressed: () => _open(m.data)),
-      ));
+      // Уже в чате — о новом сообщении не напоминаем: оно и так появится на экране.
+      if (m.data['open'] == 'chat' && chatOnScreen) return;
+      showTopBanner(
+        router.routerDelegate.navigatorKey.currentState?.overlay,
+        title: m.notification?.title == 'Вечер' ? null : m.notification?.title,
+        text: body,
+        onTap: () => _open(m.data),
+      );
     });
     // Нажали на уведомление — открываем нужный экран.
     FirebaseMessaging.onMessageOpenedApp.listen((m) => _open(m.data));

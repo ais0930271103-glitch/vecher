@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/format.dart';
+import '../../core/push.dart' show chatOnScreen;
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../today/today_screen.dart' show pairProvider;
@@ -62,6 +63,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    chatOnScreen = true;
     _attach = widget.attach;
     if (_attach != null) WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
     secureStorage.read(key: _hintKey).then((v) {
@@ -74,6 +76,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    chatOnScreen = false;
     _poll?.cancel();
     _text.dispose();
     _focus.dispose();
