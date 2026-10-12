@@ -55,11 +55,24 @@ async def test(delay: int = 5, user: User = Depends(current_user),
     Результат отправки пишется в лог сервера.
     """
     delay = max(0, min(delay, 30))
-    tokens = (await session.execute(select(DeviceToken.token).where(DeviceToken.user_id == user.id))).scalars().all()
-    sender = get_sender()
+    # Любую поломку объясняем словами: приложение показывает текст из detail.
+    try:
+        tokens = (await session.execute(
+            select(DeviceToken.token).where(DeviceToken.user_id == user.id))).scalars().all()
+        sender = get_sender()
+    except Exception as e:  # noqa: BLE001
+        log.exception("PUSH TEST: сбой при подготовке")
+        raise HTTPException(500, f"Сбой на сервере при проверке: {type(e).__name__}: {e}"[:300]) from e
     result = {"firebase": sender.project_id if sender else None, "devices": len(tokens), "delay": delay}
     if sender is None or not tokens:
         return result
+    # Сразу проверяем, что сервер может получить доступ к Google (иначе уведомления молча не уходят).
+    try:
+        await asyncio.wait_for(asyncio.to_thread(sender._token), timeout=10)
+    except Exception as e:  # noqa: BLE001
+        log.exception("PUSH TEST: нет доступа к Google")
+        raise HTTPException(
+            503, f"Сервер не может подключиться к Firebase (Google): {type(e).__name__}: {e}"[:300]) from e
 
     async def later() -> None:
         await asyncio.sleep(delay)

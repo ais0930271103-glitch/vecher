@@ -4,6 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p /opt/vecher-test/downloads  # vecher.apk и version.json для обновления приложения
 git -C ../.. pull --ff-only
+# Ключ Firebase читает сервер в контейнере (пользователь 10001)
+mkdir -p secrets && chown -R 10001:10001 secrets && chmod 700 secrets && { chmod 600 secrets/* 2>/dev/null || true; }
 docker compose up -d --build
 for i in $(seq 1 30); do
   curl -fsS http://127.0.0.1:8092/health >/dev/null 2>&1 && { echo "OK: $(curl -fsS http://127.0.0.1:8092/health)"; exit 0; }

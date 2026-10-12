@@ -21,6 +21,8 @@ else
   echo ".env уже есть — не трогаю."
 fi
 mkdir -p secrets && chmod 700 secrets
+# Сервер в контейнере работает от пользователя 10001 — ключ должен быть читаем только им.
+chown -R 10001:10001 secrets && chmod 600 secrets/* 2>/dev/null || true
 [ -f secrets/firebase-key.json ] || echo "ВНИМАНИЕ: нет secrets/firebase-key.json — push работать не будет (можно положить позже)."
 
 say "2/4 Сборка и запуск (проект vecher-test)"

@@ -103,8 +103,13 @@ def get_sender() -> FcmSender | None:
         _sender_checked = False
     if not _sender_checked:
         _sender_checked = True
-        path = find_key()
-        if path.exists():
+        try:
+            path = find_key()
+            found = path.exists()
+        except OSError as e:  # например, нет прав на папку с ключом
+            log.error("Push: нет доступа к ключу Firebase: %s", e)
+            return None
+        if found:
             try:
                 _sender = FcmSender(path)
                 log.info("Push: Firebase подключён (проект %s)", _sender.project_id)
