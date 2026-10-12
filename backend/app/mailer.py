@@ -7,7 +7,7 @@ import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate, make_msgid
 
 from .config import get_settings
 
@@ -25,6 +25,10 @@ def _send(to: str, subject: str, text: str, html: str) -> None:
     msg["From"] = formataddr(("Вечер", s.smtp_from or s.smtp_user))
     msg["To"] = to
     msg["Subject"] = subject
+    # Без Date и Message-ID Яндекс и Gmail молча отбрасывают письмо или кладут в спам.
+    sender = s.smtp_from or s.smtp_user
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=sender.rsplit("@", 1)[-1])
     msg.set_content(text)
     msg.add_alternative(html, subtype="html")
     ctx = ssl.create_default_context()
