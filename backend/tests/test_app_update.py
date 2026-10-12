@@ -19,3 +19,23 @@ async def test_version_and_download(client, tmp_path):
         assert r.headers["content-type"] == "application/vnd.android.package-archive"
     finally:
         get_settings().downloads_dir = "downloads"
+
+
+async def test_publish_needs_token_and_apk(client, tmp_path):
+    s = get_settings()
+    s.downloads_dir, s.release_token = str(tmp_path), "secret-token"
+    try:
+        q = "/app/release?version_code=7&version_name=0.2.0&notes=Новое"
+        assert (await client.put(q, content=b"PK-apk")).status_code == 403
+        assert (await client.put(q, content=b"PK-apk", headers={"Authorization": "Bearer wrong"})).status_code == 403
+        auth = {"Authorization": "Bearer secret-token"}
+        assert (await client.put(q, content=b"not a zip", headers=auth)).status_code == 422
+        r = await client.put(q, content=b"PK-real-apk", headers=auth)
+        assert r.status_code == 200 and r.json()["bytes"] == 11
+        v = (await client.get("/app/version")).json()
+        assert v["version_code"] == 7 and v["notes"] == "Новое"
+        assert (await client.get("/download/vecher.apk")).content == b"PK-real-apk"
+        s.release_token = ""  # без токена на сервере выкладка выключена совсем
+        assert (await client.put(q, content=b"PK-x", headers=auth)).status_code == 403
+    finally:
+        s.downloads_dir, s.release_token = "downloads", ""

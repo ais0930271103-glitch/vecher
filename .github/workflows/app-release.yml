@@ -1,0 +1,94 @@
+# Автосборка «Вечера»: проверка сервера тестами → сборка APK → выкладка на тестовый сервер.
+# У всех, у кого стоит приложение, при запуске появится «Новая версия».
+#
+# Секреты (GitHub → Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_B64  — ключ подписи (debug.keystore с ПК Артёма) в base64. Без него телефон не примет обновление.
+#   RELEASE_TOKEN         — тот же, что VECHER_RELEASE_TOKEN в .env на сервере.
+name: Сборка приложения
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/app-release.yml"]
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "Что нового (покажется в окне обновления)"
+        required: false
+      required:
+        description: "Обязательное обновление"
+        type: boolean
+        default: false
+
+concurrency:
+  group: app-release
+  cancel-in-progress: true
+
+env:
+  API_URL: https://api-test.xn--b1aga8b7a.online
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt pytest pytest-asyncio
+      - run: python -m pytest -q
+
+  apk:
+    needs: backend-tests
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: app } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+
+      - name: Ключ подписи
+        env: { KEYSTORE: "${{ secrets.ANDROID_KEYSTORE_B64 }}" }
+        run: |
+          if [ -z "$KEYSTORE" ]; then echo "::error::Нет секрета ANDROID_KEYSTORE_B64"; exit 1; fi
+          mkdir -p ~/.android
+          echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
+
+      - name: Номер версии
+        id: v
+        run: |
+          echo "name=$(grep -oP '^version:\s*\K[0-9.]+' pubspec.yaml)" >> "$GITHUB_OUTPUT"
+          # Номер сборки растёт сам: 100, 101, 102… (с ПК выпускались 1–3)
+          echo "code=$(( 99 + ${{ github.run_number }} ))" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Сборка APK
+        run: >
+          flutter build apk --release --target-platform android-arm64
+          --build-name ${{ steps.v.outputs.name }} --build-number ${{ steps.v.outputs.code }}
+          --dart-define=API_URL=$API_URL
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vecher-${{ steps.v.outputs.name }}-${{ steps.v.outputs.code }}
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
+
+      - name: Выкладка на тестовый сервер
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          NOTES: ${{ github.event.inputs.notes || github.event.head_commit.message || 'Исправления и улучшения' }}
+          REQUIRED: ${{ github.event.inputs.required || 'false' }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "::warning::Нет секрета RELEASE_TOKEN — APK собран, но не выложен"; exit 0; fi
+          NOTES=$(printf '%s' "$NOTES" | head -n1)
+          QUERY=$(python3 -c 'import sys, urllib.parse as u; a = sys.argv[1:]; a[2] = a[2][:300]; print(u.urlencode(dict(zip(["version_code","version_name","notes","required"], a))))' \
+            "${{ steps.v.outputs.code }}" "${{ steps.v.outputs.name }}" "$NOTES" "$REQUIRED")
+          curl -fsS --retry 3 -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/vnd.android.package-archive" \
+            -T build/app/outputs/flutter-apk/app-release.apk "$API_URL/app/release?$QUERY"
+          echo
+          curl -fsS "$API_URL/app/version"

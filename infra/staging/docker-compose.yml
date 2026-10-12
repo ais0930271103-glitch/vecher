@@ -37,8 +37,8 @@ services:
       VECHER_PUBLIC_URL: https://api-test.xn--b1aga8b7a.online
     volumes:
       - ./secrets:/run/vecher:ro
-      # Обновления приложения: vecher.apk и version.json (кладёт app/release.ps1 с ПК)
-      - /opt/vecher-test/downloads:/srv/downloads:ro
+      # Обновления приложения: vecher.apk и version.json (кладёт автосборка GitHub или app/release.ps1 с ПК)
+      - /opt/vecher-test/downloads:/srv/downloads
     ports: ["127.0.0.1:${API_PORT:-8092}:8000"]
     mem_limit: 320m
     healthcheck:

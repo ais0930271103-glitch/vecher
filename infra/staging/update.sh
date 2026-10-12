@@ -2,8 +2,9 @@
 # Обновить тестовый сервер: свежий код из GitHub → пересборка → проверка.
 set -euo pipefail
 cd "$(dirname "$0")"
-mkdir -p /opt/vecher-test/downloads  # vecher.apk и version.json для обновления приложения
 git -C ../.. pull --ff-only
+# vecher.apk и version.json: пишет сервер в контейнере (пользователь 10001) — автосборка GitHub
+mkdir -p /opt/vecher-test/downloads && chown -R 10001:10001 /opt/vecher-test/downloads
 # Ключ Firebase читает сервер в контейнере (пользователь 10001)
 mkdir -p secrets && chown -R 10001:10001 secrets && chmod 700 secrets && { chmod 600 secrets/* 2>/dev/null || true; }
 docker compose up -d --build
