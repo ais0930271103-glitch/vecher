@@ -167,7 +167,21 @@ async def notify(session: AsyncSession, user_id: str, title: str, body: str,
     sender = get_sender()
     if sender is None:
         return True
-    tokens = (await session.execute(select(DeviceToken.token).where(DeviceToken.user_id == user_id))).scalars().all()
+    tokens = list((await session.execute(
+        select(DeviceToken.token).where(DeviceToken.user_id == user_id))).scalars().all())
+    if tokens:
+        # Отправка в Google — в фоне: человек не ждёт ответа FCM (он бывает долгим),
+        # а сбой уведомления никогда не превращается в ошибку его действия.
+        task = asyncio.create_task(_deliver(sender, tokens, title, body, data))
+        _push_tasks.add(task)
+        task.add_done_callback(_push_tasks.discard)
+    return True
+
+
+_push_tasks: set[asyncio.Task] = set()
+
+
+async def _deliver(sender: "FcmSender", tokens: list[str], title: str, body: str, data: dict) -> None:
     dead = []
     for t in tokens:
         try:
@@ -176,6 +190,11 @@ async def notify(session: AsyncSession, user_id: str, title: str, body: str,
         except Exception as e:  # noqa: BLE001 — сбой push не должен ломать действие пользователя
             log.warning("Push не отправлен: %s", e)
     if dead:
-        await session.execute(delete(DeviceToken).where(DeviceToken.token.in_(dead)))
-        await session.commit()
-    return True
+        try:
+            from .db import SessionLocal
+
+            async with SessionLocal() as s:
+                await s.execute(delete(DeviceToken).where(DeviceToken.token.in_(dead)))
+                await s.commit()
+        except Exception as e:  # noqa: BLE001
+            log.warning("Не удалось убрать старые токены: %s", e)

@@ -3,6 +3,7 @@
 Мгновенная доставка — на этапе сервера (Centrifugo); пока приложение подтягивает новое раз в несколько секунд.
 Голосовые и звонки — тоже на этапе сервера.
 """
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -16,6 +17,7 @@ from ..models import ChatMessage, ChatRead, utcnow
 from ..push import display_name, notify
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+log = logging.getLogger("vecher.chat")
 
 REF_KINDS = ("match", "plan", "invite", "letter")
 REACTIONS = ("❤️", "😂", "😮", "😢", "👍", "🔥")
@@ -141,12 +143,18 @@ async def send(body: MessageIn, ctx: PairContext = Depends(active_pair),
     session.add(m)
     await _mark_read(session, ctx)  # своё сообщение = всё до него прочитано
     await session.commit()
-    name = await display_name(session, ctx.user.id)
-    # Не чаще одного уведомления в минуту на серию сообщений; текст сообщения в уведомление не кладём.
-    minute = utcnow().strftime("%Y%m%d%H%M")
-    await notify(session, ctx.partner_id, "Вечер", f"{name} написал(а) тебе", {"open": "chat"},
-                 key=f"chat:{ctx.pair.id}:{ctx.partner_id}:{minute}")
-    return _out(m, ctx.user.id, {reply.id: reply} if reply else {})
+    out = _out(m, ctx.user.id, {reply.id: reply} if reply else {})
+    # Сообщение уже сохранено — что бы ни случилось с уведомлением, отвечаем «отправлено».
+    try:
+        name = await display_name(session, ctx.user.id)
+        # Не чаще одного уведомления в минуту на серию сообщений; текст сообщения в уведомление не кладём.
+        minute = utcnow().strftime("%Y%m%d%H%M")
+        await notify(session, ctx.partner_id, "Вечер", f"{name} написал(а) тебе", {"open": "chat"},
+                     key=f"chat:{ctx.pair.id}:{ctx.partner_id}:{minute}")
+    except Exception as e:  # noqa: BLE001
+        await session.rollback()
+        log.warning("Уведомление о сообщении не отправлено: %s", e)
+    return out
 
 
 async def _mark_read(session: AsyncSession, ctx: PairContext) -> None:
