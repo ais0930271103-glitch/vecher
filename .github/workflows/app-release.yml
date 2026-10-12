@@ -6,10 +6,10 @@
 #   RELEASE_TOKEN         — тот же, что VECHER_RELEASE_TOKEN в .env на сервере.
 name: Сборка приложения
 
+# Пока приложение собирается на ПК (app/release.ps1) — автосборка только вручную (кнопка Run workflow).
+# Включить автоматически при каждом изменении: вернуть блок
+#   push: { branches: [main], paths: ["app/**"] }
 on:
-  push:
-    branches: [main]
-    paths: ["app/**", ".github/workflows/app-release.yml"]
   workflow_dispatch:
     inputs:
       notes:
