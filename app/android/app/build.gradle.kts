@@ -29,6 +29,15 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Native plugins must not advertise ABIs without a matching Flutter
+        // engine. The existing release scripts explicitly build arm64 only.
+        if (project.findProperty("target-platform") == "android-arm64" &&
+            project.findProperty("split-per-abi")?.toString()?.toBoolean() != true) {
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
+            }
+        }
     }
 
     buildTypes {
