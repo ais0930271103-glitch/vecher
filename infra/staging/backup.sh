@@ -39,7 +39,8 @@ if [ "$MODE" = consistent ] && [ -n "$(docker compose ps --status running -q api
   RESUME_API=1
   docker compose stop --timeout 30 api >/dev/null
 fi
-docker compose exec -T db pg_dump -U vecher vecher | gzip > "$WORK_DIR/vecher-$STAMP.sql.gz"
+# -T отключает TTY, но не stdin: не отдаём Docker оставшиеся команды вызывающего heredoc.
+docker compose exec -T db pg_dump -U vecher vecher </dev/null | gzip > "$WORK_DIR/vecher-$STAMP.sql.gz"
 gzip -t "$WORK_DIR/vecher-$STAMP.sql.gz"
 if [ "$MODE" = consistent ]; then
   for part in uploads downloads; do
