@@ -15,6 +15,7 @@ from ..erase import erase_user
 from ..mailer import send_login_code
 from ..models import Consent, LoginCode, PairMember, User, UserCity
 from ..push import notify
+from ..pair_lock import pair_lock
 from ..security import create_token, current_user, hash_otp, new_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -183,8 +184,14 @@ async def delete_account(user: User = Depends(current_user), session: AsyncSessi
         )
     )).scalar_one_or_none()
     name, uid = user.display_name or "Партнёр", user.id
-    await erase_user(session, user)
-    await session.commit()
+    pair_id = (await session.execute(select(PairMember.pair_id).where(PairMember.user_id == user.id))).scalar_one_or_none()
+    if pair_id:
+        async with pair_lock(session, pair_id, active=False):
+            await erase_user(session, user)
+            await session.commit()
+    else:
+        await erase_user(session, user)
+        await session.commit()
     log.info("Account deleted: %s", uid)
     if partner_id:
         await notify(session, partner_id, "Вечер", f"{name} удалил(а) аккаунт — ваша пара в «Вечере» завершена",

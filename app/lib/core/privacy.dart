@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -62,6 +62,8 @@ class PinGate extends StatefulWidget {
   final Widget child;
 
   static final _locked = ValueNotifier<bool>(false);
+  static bool get isLocked => _locked.value;
+  static ValueListenable<bool> get lockedListenable => _locked;
 
   /// Код только что задан — не просить его сразу же.
   static void unlock() => _locked.value = false;
@@ -95,8 +97,10 @@ class _PinGateState extends State<PinGate> with WidgetsBindingObserver {
       final since = _backgroundSince;
       _backgroundSince = null;
       if (since != null && DateTime.now().difference(since) >= _relockAfter) {
+        // Lock synchronously, before the call screen can resume its camera.
+        PinGate._locked.value = true;
         hasPin().then((v) {
-          if (v) PinGate._locked.value = true;
+          PinGate._locked.value = v;
         });
       }
     }

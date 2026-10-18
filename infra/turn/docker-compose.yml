@@ -1,0 +1,35 @@
+# Отдельный опциональный проект. Без --profile turn сервис не запускается.
+name: vecher-turn
+
+services:
+  coturn:
+    image: ${COTURN_IMAGE:-coturn/coturn:4.18.0-r0}
+    profiles: [turn]
+    restart: unless-stopped
+    # Linux host: не создаёт тысячи Docker port mappings и не присоединяется к сетям API/krug.
+    network_mode: host
+    user: "65534:65534"
+    entrypoint: ["/usr/bin/turnserver"]
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    read_only: true
+    volumes:
+      - type: bind
+        source: ${TURN_STATE_DIR:-/opt/vecher-turn}/turnserver.conf
+        target: /etc/coturn/turnserver.conf
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ${TURN_STATE_DIR:-/opt/vecher-turn}/tls
+        target: /etc/coturn/tls
+        read_only: true
+        bind: { create_host_path: false }
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m,uid=65534,gid=65534,mode=700
+      - /var/lib/coturn:rw,noexec,nosuid,size=8m,uid=65534,gid=65534,mode=700
+    # Начальный бюджет для проверки одной пары; пропускную способность нужно измерить.
+    mem_limit: 128m
+    cpus: "0.50"
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }

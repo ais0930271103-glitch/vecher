@@ -1,7 +1,7 @@
-"""Чат пары: текст, «Обсудить» (совпадение, план, приглашение, письмо), ответы, реакции, прочитано.
+"""Чат пары: текст, приватные файлы, «Обсудить», ответы, реакции и прочитано.
 
-Мгновенная доставка — на этапе сервера (Centrifugo); пока приложение подтягивает новое раз в несколько секунд.
-Голосовые и звонки — тоже на этапе сервера.
+Клиент получает историю через REST polling; push сообщает о новых сообщениях.
+Сигналинг приватных видеозвонков находится в routers/calls.py.
 """
 import logging
 from datetime import datetime, timezone
@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import PairContext, active_pair
-from ..models import ChatMessage, ChatRead, utcnow
+from ..models import ChatAttachment, ChatMessage, ChatRead, ChatSendKey, utcnow
+from ..attachments import AttachmentOut, _expired, attachment_out, delete_attachments
+from ..pair_lock import pair_lock
 from ..push import display_name, notify
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -35,6 +37,8 @@ class MessageIn(BaseModel):
     ref_id: str | None = Field(default=None, max_length=64)
     ref_title: str | None = Field(default=None, max_length=300)
     reply_to: str | None = None
+    attachment_ids: list[str] | None = Field(default=None, max_length=5)
+    client_message_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ReactIn(BaseModel):
@@ -53,6 +57,8 @@ class MessageOut(BaseModel):
     reaction: str | None
     deleted: bool
     created_at: datetime
+    attachments: list[AttachmentOut] = Field(default_factory=list)
+    client_message_id: str | None = None
 
 
 class ChatOut(BaseModel):
@@ -76,7 +82,8 @@ async def _read_at(session: AsyncSession, pair_id: str, user_id: str) -> datetim
     return _aware(v)
 
 
-def _out(m: ChatMessage, me: str, replies: dict[str, ChatMessage]) -> MessageOut:
+def _out(m: ChatMessage, me: str, replies: dict[str, ChatMessage],
+         attachments: list[ChatAttachment] | None = None, client_message_id: str | None = None) -> MessageOut:
     return MessageOut(
         id=m.id, mine=m.from_id == me,
         text=None if m.deleted else m.text,
@@ -85,7 +92,19 @@ def _out(m: ChatMessage, me: str, replies: dict[str, ChatMessage]) -> MessageOut
         ref_title=None if m.deleted else m.ref_title,
         reply_to=m.reply_to_id, reply_text=_preview(replies.get(m.reply_to_id)) if m.reply_to_id else None,
         reaction=m.reaction, deleted=m.deleted, created_at=_aware(m.created_at),
+        attachments=[attachment_out(a) for a in (attachments or [])] if not m.deleted else [],
+        client_message_id=client_message_id if m.from_id == me else None,
     )
+
+
+async def _message_out(session: AsyncSession, m: ChatMessage, me: str) -> MessageOut:
+    files = (await session.execute(select(ChatAttachment).where(ChatAttachment.message_id == m.id,
+                                                               ChatAttachment.pair_id == m.pair_id))).scalars().all()
+    key = (await session.execute(select(ChatSendKey.client_id).where(
+        ChatSendKey.message_id == m.id, ChatSendKey.from_id == me))).scalar_one_or_none()
+    reply = await session.get(ChatMessage, m.reply_to_id) if m.reply_to_id else None
+    replies = {reply.id: reply} if reply and reply.pair_id == m.pair_id else {}
+    return _out(m, me, replies, list(files), key)
 
 
 @router.get("", response_model=ChatOut)
@@ -105,10 +124,19 @@ async def history(
     replies = {}
     if reply_ids:
         replies = {m.id: m for m in (await session.execute(
-            select(ChatMessage).where(ChatMessage.id.in_(reply_ids))
+            select(ChatMessage).where(ChatMessage.id.in_(reply_ids), ChatMessage.pair_id == ctx.pair.id)
         )).scalars()}
+    files: dict[str, list[ChatAttachment]] = {}
+    keys: dict[str, str] = {}
+    if rows:
+        ids = [m.id for m in rows]
+        for file in (await session.execute(select(ChatAttachment).where(
+            ChatAttachment.pair_id == ctx.pair.id, ChatAttachment.message_id.in_(ids)))).scalars():
+            files.setdefault(file.message_id, []).append(file)
+        keys = dict((await session.execute(select(ChatSendKey.message_id, ChatSendKey.client_id).where(
+            ChatSendKey.message_id.in_(ids), ChatSendKey.from_id == ctx.user.id))).all())
     return ChatOut(
-        messages=[_out(m, ctx.user.id, replies) for m in rows],
+        messages=[_out(m, ctx.user.id, replies, files.get(m.id), keys.get(m.id)) for m in rows],
         partner_read_at=await _read_at(session, ctx.pair.id, ctx.partner_id),
         has_more=has_more,
     )
@@ -130,20 +158,45 @@ async def send(body: MessageIn, ctx: PairContext = Depends(active_pair),
     text = (body.text or "").strip() or None
     if body.ref_kind is not None and body.ref_kind not in REF_KINDS:
         raise HTTPException(422, "Неизвестный тип вложения")
-    if text is None and body.ref_kind is None:
+    attachment_ids = body.attachment_ids or []
+    if len(set(attachment_ids)) != len(attachment_ids):
+        raise HTTPException(422, "Файл указан дважды")
+    if text is None and body.ref_kind is None and not attachment_ids:
         raise HTTPException(422, "Пустое сообщение")
-    reply = None
-    if body.reply_to:
-        reply = await session.get(ChatMessage, body.reply_to)
-        if reply is None or reply.pair_id != ctx.pair.id:
-            raise HTTPException(404, "Сообщение для ответа не найдено")
-    m = ChatMessage(pair_id=ctx.pair.id, from_id=ctx.user.id, text=text, ref_kind=body.ref_kind,
-                    ref_id=body.ref_id, ref_title=(body.ref_title or None) if body.ref_kind else None,
-                    reply_to_id=reply.id if reply else None)
-    session.add(m)
-    await _mark_read(session, ctx)  # своё сообщение = всё до него прочитано
-    await session.commit()
-    out = _out(m, ctx.user.id, {reply.id: reply} if reply else {})
+    async with pair_lock(session, ctx.pair.id):
+        if body.client_message_id:
+            previous = await session.get(ChatSendKey, (ctx.pair.id, ctx.user.id, body.client_message_id))
+            if previous:
+                old = await session.get(ChatMessage, previous.message_id)
+                out = await _message_out(session, old, ctx.user.id)
+                await session.commit()
+                return out
+        reply = None
+        if body.reply_to:
+            reply = await session.get(ChatMessage, body.reply_to)
+            if reply is None or reply.pair_id != ctx.pair.id:
+                raise HTTPException(404, "Сообщение для ответа не найдено")
+        files = []
+        for file_id in attachment_ids:
+            file = await session.get(ChatAttachment, file_id)
+            if (file is None or file.pair_id != ctx.pair.id or file.from_id != ctx.user.id or _expired(file)):
+                raise HTTPException(404, "Файл не найден — прикрепи его заново")
+            if file.message_id is not None:
+                raise HTTPException(409, "Файл уже отправлен")
+            files.append(file)
+        m = ChatMessage(pair_id=ctx.pair.id, from_id=ctx.user.id, text=text, ref_kind=body.ref_kind,
+                        ref_id=body.ref_id, ref_title=(body.ref_title or None) if body.ref_kind else None,
+                        reply_to_id=reply.id if reply else None)
+        session.add(m)
+        await session.flush()
+        for file in files:
+            file.message_id = m.id
+        if body.client_message_id:
+            session.add(ChatSendKey(pair_id=ctx.pair.id, from_id=ctx.user.id,
+                                    client_id=body.client_message_id, message_id=m.id))
+        await _mark_read(session, ctx)  # своё сообщение = всё до него прочитано
+        await session.commit()
+        out = _out(m, ctx.user.id, {reply.id: reply} if reply else {}, files, body.client_message_id)
     # Сообщение уже сохранено — что бы ни случилось с уведомлением, отвечаем «отправлено».
     try:
         name = await display_name(session, ctx.user.id)
@@ -191,15 +244,17 @@ async def react(message_id: str, body: ReactIn, ctx: PairContext = Depends(activ
         raise HTTPException(422, "Такой реакции нет")
     m.reaction = body.emoji
     await session.commit()
-    return _out(m, ctx.user.id, {})
+    return await _message_out(session, m, ctx.user.id)
 
 
 @router.delete("/{message_id}", response_model=MessageOut)
 async def delete(message_id: str, ctx: PairContext = Depends(active_pair),
                  session: AsyncSession = Depends(get_session)):
-    m = await _message(session, ctx, message_id)
-    if m.from_id != ctx.user.id:
-        raise HTTPException(403, "Удалить можно только своё сообщение")
-    m.deleted, m.text, m.ref_title = True, None, None
-    await session.commit()
+    async with pair_lock(session, ctx.pair.id):
+        m = await _message(session, ctx, message_id)
+        if m.from_id != ctx.user.id:
+            raise HTTPException(403, "Удалить можно только своё сообщение")
+        m.deleted, m.text, m.ref_title = True, None, None
+        await delete_attachments(session, ChatAttachment.message_id == m.id, ChatAttachment.pair_id == ctx.pair.id)
+        await session.commit()
     return _out(m, ctx.user.id, {})

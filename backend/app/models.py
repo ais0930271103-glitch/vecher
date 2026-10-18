@@ -475,3 +475,59 @@ class PlaceVote(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
     place_id: Mapped[int] = mapped_column(ForeignKey("places.id", ondelete="CASCADE"))
+
+
+class ChatAttachment(Base):
+    """Приватный файл: до отправки доступен автору, после — участникам пары."""
+
+    __tablename__ = "chat_attachments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    message_id: Mapped[str | None] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), index=True)
+    storage_key: Mapped[str] = mapped_column(String(32), unique=True)
+    name: Mapped[str] = mapped_column(Encrypted())
+    mime: Mapped[str] = mapped_column(String(127))
+    size: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ChatSendKey(Base):
+    """Повтор POST после сетевого таймаута возвращает то же сообщение."""
+
+    __tablename__ = "chat_send_keys"
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), primary_key=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    message_id: Mapped[str] = mapped_column(ForeignKey("chat_messages.id", ondelete="CASCADE"), unique=True)
+
+
+class PairCall(Base):
+    __tablename__ = "pair_calls"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    # NULL после завершения; UNIQUE гарантирует один звонок на пару даже при гонке workers.
+    active_pair_id: Mapped[str | None] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), unique=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    to_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(12), default="ringing")
+    end_reason: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    caller_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    callee_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CallSignal(Base):
+    __tablename__ = "call_signals"
+    __table_args__ = (UniqueConstraint("call_id", "from_id", "client_id", name="uq_call_signal_retry"),)
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    call_id: Mapped[str] = mapped_column(ForeignKey("pair_calls.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    client_id: Mapped[str | None] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(8))
+    data: Mapped[str] = mapped_column(Encrypted())
+    size: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/city_screen.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/calls/call_inbox.dart';
+import '../features/calls/call_screen.dart';
 import '../features/auth/code_screen.dart';
 import '../features/auth/consent_screen.dart';
 import '../features/auth/email_screen.dart';
@@ -24,6 +26,7 @@ import '../features/wishes/plan_screen.dart';
 import '../features/wishes/swipe_screen.dart';
 import '../features/wishes/wishes_screen.dart';
 import 'api.dart';
+import 'chat_presence.dart';
 import 'push.dart';
 import 'updater.dart';
 import 'theme.dart';
@@ -32,6 +35,7 @@ final _rootKey = GlobalKey<NavigatorState>();
 
 final router = GoRouter(
   navigatorKey: _rootKey,
+  observers: [chatRouteObserver],
   initialLocation: '/',
   routes: [
     GoRoute(path: '/', builder: (_, __) => const SplashScreen()),
@@ -41,6 +45,8 @@ final router = GoRouter(
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(path: '/city', builder: (_, __) => const CityScreen()),
     GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
+    GoRoute(path: '/call', builder: (_, __) => const CallScreen()),
+    GoRoute(path: '/call/:id', builder: (_, state) => CallScreen(callId: state.pathParameters['id']!)),
     // Ссылка-приглашение: запоминаем код и идём обычным путём (вход → согласие → имя → «Сегодня»).
     GoRoute(path: '/i/:code', builder: (_, state) => _InviteLink(code: state.pathParameters['code']!)),
     GoRoute(
@@ -149,7 +155,7 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
   Widget build(BuildContext context) {
     // Нижнее меню как в макетах: тёмная полоса, золотой активный пункт, без «пилюли».
     return Scaffold(
-      body: shell,
+      body: CallInbox(child: shell),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: VColors.nav,

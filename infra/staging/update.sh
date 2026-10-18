@@ -3,6 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 git -C ../.. pull --ff-only
+bash ./prepare-storage.sh
 # vecher.apk и version.json: пишет сервер в контейнере (пользователь 10001) — автосборка GitHub
 mkdir -p /opt/vecher-test/downloads && chown -R 10001:10001 /opt/vecher-test/downloads
 # Ключ Firebase читает сервер в контейнере (пользователь 10001)

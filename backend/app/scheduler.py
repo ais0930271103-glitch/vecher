@@ -33,6 +33,11 @@ async def _partner_of(session: AsyncSession, pair_id: str, user_id: str) -> str 
 
 async def tick(session: AsyncSession, now: datetime | None = None) -> None:
     now = now or utcnow()
+    from .attachments import cleanup_attachments
+    from .routers.calls import cleanup_calls
+
+    await cleanup_calls(session, now)
+    await cleanup_attachments(session, now)
     window = now - timedelta(days=2)  # не будим давно прошедшее (например, после долгого простоя)
 
     # Письма, время доставки которых наступило.

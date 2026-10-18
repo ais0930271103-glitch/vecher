@@ -21,6 +21,11 @@ void showTopBanner(
   hideTopBanner();
   HapticFeedback.lightImpact();
   late final OverlayEntry entry;
+  // A disappearing old banner must not close the newer one that replaced it.
+  void dismissThisBanner() {
+    if (identical(_current, entry)) hideTopBanner();
+  }
+
   entry = OverlayEntry(
     builder: (_) => _TopBanner(
       title: title,
@@ -28,26 +33,33 @@ void showTopBanner(
       onTap: onTap == null
           ? null
           : () {
-              hideTopBanner();
+              dismissThisBanner();
               onTap();
             },
-      onDismiss: hideTopBanner,
+      onDismiss: dismissThisBanner,
     ),
   );
   _current = entry;
   overlay.insert(entry);
-  _timer = Timer(duration, hideTopBanner);
+  _timer = Timer(duration, dismissThisBanner);
 }
 
 void hideTopBanner() {
   _timer?.cancel();
   _timer = null;
-  _current?.remove();
+  final entry = _current;
   _current = null;
+  entry?.remove();
+  entry?.dispose();
 }
 
 class _TopBanner extends StatefulWidget {
-  const _TopBanner({required this.text, this.title, this.onTap, required this.onDismiss});
+  const _TopBanner({
+    required this.text,
+    this.title,
+    this.onTap,
+    required this.onDismiss,
+  });
   final String? title;
   final String text;
   final VoidCallback? onTap;
@@ -57,11 +69,16 @@ class _TopBanner extends StatefulWidget {
   State<_TopBanner> createState() => _TopBannerState();
 }
 
-class _TopBannerState extends State<_TopBanner> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 260))..forward();
-  late final Animation<Offset> _slide =
-      Tween(begin: const Offset(0, -1.2), end: Offset.zero).animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic));
+class _TopBannerState extends State<_TopBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  )..forward();
+  late final Animation<Offset> _slide = Tween(
+    begin: const Offset(0, -1.2),
+    end: Offset.zero,
+  ).animate(CurvedAnimation(parent: _c, curve: Curves.easeOutCubic));
 
   @override
   void dispose() {
@@ -95,25 +112,67 @@ class _TopBannerState extends State<_TopBanner> with SingleTickerProviderStateMi
                   onTap: widget.onTap,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Row(children: [
-                      const Icon(Icons.nightlight_round, color: VColors.gold, size: 22),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                          if (widget.title != null && widget.title!.isNotEmpty)
-                            Text(widget.title!,
-                                style: const TextStyle(color: VColors.goldText, fontWeight: FontWeight.w600, fontSize: 14)),
-                          Text(widget.text,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: VColors.text, fontSize: 14, height: 1.3)),
-                        ]),
-                      ),
-                      if (widget.onTap != null) ...[
-                        const SizedBox(width: 8),
-                        const Text('Открыть', style: TextStyle(color: VColors.gold, fontWeight: FontWeight.w600)),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.nightlight_round,
+                          color: VColors.gold,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Semantics(
+                            liveRegion: true,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (widget.title != null &&
+                                    widget.title!.isNotEmpty)
+                                  Text(
+                                    widget.title!,
+                                    style: const TextStyle(
+                                      color: VColors.goldText,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                Text(
+                                  widget.text,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: VColors.text,
+                                    fontSize: 14,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (widget.onTap != null) ...[
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Открыть',
+                            style: TextStyle(
+                              color: VColors.gold,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                        IconButton(
+                          tooltip: 'Закрыть уведомление',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(
+                            Icons.close,
+                            color: VColors.muted,
+                            size: 18,
+                          ),
+                          onPressed: widget.onDismiss,
+                        ),
                       ],
-                    ]),
+                    ),
                   ),
                 ),
               ),
