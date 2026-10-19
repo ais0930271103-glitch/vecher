@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 
+import 'ice_configuration.dart';
+
 class CallSession {
   const CallSession({
     required this.id,
@@ -54,9 +56,7 @@ class CallConfiguration {
   });
 
   factory CallConfiguration.fromMap(Map data) => CallConfiguration(
-    iceServers: (data['ice_servers'] as List? ?? [])
-        .map((item) => Map<String, dynamic>.from(item as Map))
-        .toList(growable: false),
+    iceServers: normalizeIceServers(data['ice_servers'] ?? const []),
     enabled: data['enabled'] != false,
     relayConfigured: data['relay_configured'] == true,
   );

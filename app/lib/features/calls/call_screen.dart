@@ -13,6 +13,7 @@ import '../../core/theme.dart';
 import '../../core/top_banner.dart';
 import 'call_api.dart';
 import 'call_controller.dart';
+import 'call_feedback.dart';
 import 'call_navigation.dart';
 import 'webrtc_call_peer.dart';
 
@@ -30,8 +31,13 @@ class _CallScreenState extends ConsumerState<CallScreen>
     with WidgetsBindingObserver {
   late final WebRtcCallPeer _peer;
   late final CallController _call;
+  late final CallFeedback _feedback;
   Timer? _clock;
   bool _background = false;
+  bool _foreground = true;
+  bool _feedbackFresh = true;
+  bool _refreshingFeedback = false;
+  int _visibilityEpoch = 0;
   bool _changingCamera = false;
   bool _alerted = false;
 
@@ -40,12 +46,24 @@ class _CallScreenState extends ConsumerState<CallScreen>
     super.initState();
     setCallScreenPresent(this, true);
     hideTopBanner();
-    WidgetsBinding.instance.addObserver(this);
-    PinGate.lockedListenable.addListener(_applyCameraPrivacy);
+    _feedback = CallFeedback();
     _peer = WebRtcCallPeer();
-    _call = CallController(api: DioCallApi(ref.read(dioProvider)), peer: _peer);
+    _call = CallController(
+      api: DioCallApi(ref.read(dioProvider)),
+      peer: _peer,
+      beforeMedia: _feedback.stop,
+    );
+    _foreground =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _background = const [
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.detached,
+    ].contains(WidgetsBinding.instance.lifecycleState);
+    WidgetsBinding.instance.addObserver(this);
+    PinGate.lockedListenable.addListener(_applyPrivacy);
     _call.addListener(_callChanged);
-    _applyCameraPrivacy();
+    _applyPrivacy();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted && _call.connectedAt != null && !_call.finished) {
         setState(() {});
@@ -55,39 +73,102 @@ class _CallScreenState extends ConsumerState<CallScreen>
   }
 
   void _callChanged() {
-    if (!_alerted && _call.incoming && _call.phase == CallPhase.ringing) {
+    _syncFeedback();
+    if (!_alerted &&
+        _call.incoming &&
+        _call.phase == CallPhase.ringing &&
+        !_call.accepting &&
+        _foreground &&
+        !PinGate.isLocked &&
+        _feedbackFresh &&
+        _call.session!.expiresAt.isAfter(DateTime.now())) {
       _alerted = true;
-      unawaited(HapticFeedback.mediumImpact());
-      unawaited(SystemSound.play(SystemSoundType.alert));
+      unawaited(HapticFeedback.mediumImpact().catchError((Object _) {}));
+    }
+    if (!_feedbackFresh) unawaited(_refreshFeedback());
+  }
+
+  void _syncFeedback() {
+    unawaited(
+      _feedback.sync(
+        phase: _call.phase,
+        incoming: _call.incoming,
+        accepting: _call.accepting,
+        foreground: _foreground,
+        privacyLocked: PinGate.isLocked,
+        fresh: _feedbackFresh,
+        expiresAt: _call.session?.expiresAt,
+      ),
+    );
+  }
+
+  void _applyPrivacy() {
+    _peer.setBackground(_background || PinGate.isLocked);
+    if (!_foreground || PinGate.isLocked) {
+      _visibilityEpoch++;
+      _feedbackFresh = false;
+    }
+    _syncFeedback();
+    if (!_feedbackFresh) unawaited(_refreshFeedback());
+  }
+
+  Future<void> _refreshFeedback() async {
+    if (_refreshingFeedback ||
+        !mounted ||
+        !_foreground ||
+        PinGate.isLocked ||
+        _call.session == null ||
+        _call.finished) {
+      return;
+    }
+    _refreshingFeedback = true;
+    final epoch = _visibilityEpoch;
+    try {
+      final fresh = await _call.refresh();
+      if (mounted &&
+          epoch == _visibilityEpoch &&
+          _foreground &&
+          !PinGate.isLocked) {
+        _feedbackFresh = fresh;
+        _syncFeedback();
+      }
+    } catch (_) {
+      // Keep a returned screen silent until a later successful server refresh.
+    } finally {
+      _refreshingFeedback = false;
+      if (mounted && epoch != _visibilityEpoch && !_feedbackFresh) {
+        unawaited(_refreshFeedback());
+      }
     }
   }
 
-  void _applyCameraPrivacy() =>
-      _peer.setBackground(_background || PinGate.isLocked);
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       _background = true;
-      _applyCameraPrivacy();
     } else if (state == AppLifecycleState.resumed) {
       _background = false;
-      _applyCameraPrivacy();
-      unawaited(_call.poll());
     }
+    _applyPrivacy();
   }
 
   @override
   void dispose() {
+    _foreground = false;
+    _visibilityEpoch++;
     _clock?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    PinGate.lockedListenable.removeListener(_applyCameraPrivacy);
+    PinGate.lockedListenable.removeListener(_applyPrivacy);
     setCallScreenPresent(this, false);
     _call.removeListener(_callChanged);
     _call.dispose();
-    final cleanup = _peer.close().whenComplete(_peer.dispose);
+    final cleanup = Future.wait<void>([
+      _feedback.dispose(),
+      _peer.close(),
+    ]).then<void>((_) {}).whenComplete(_peer.dispose);
     waitForCallCleanup(cleanup);
     unawaited(cleanup);
     super.dispose();

@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
-import 'call_controller.dart';
+import 'call_controller.dart' show CallPeer;
+import 'call_media_exception.dart';
+import 'ice_configuration.dart';
 import 'local_media_cleanup.dart';
 
 const _relayOnly = bool.fromEnvironment('CALL_RELAY_ONLY', defaultValue: false);
@@ -53,6 +55,22 @@ class WebRtcCallPeer extends CallPeer with ChangeNotifier {
     if (_closed) throw const CallMediaException('Звонок завершён');
   }
 
+  Future<T> _runStage<T>(
+    String stage,
+    String message,
+    Future<T> Function() action,
+  ) async {
+    try {
+      return await action();
+    } on CallMediaException {
+      rethrow;
+    } catch (_) {
+      // Native exception text can contain ICE URLs, credentials or SDP. Keep
+      // only an explicit, safe stage code and a useful message for the person.
+      throw CallMediaException(message, stage: stage);
+    }
+  }
+
   Future<void> _initialize(List<Map<String, dynamic>> iceServers) async {
     _checkOpen();
     if (_appInBackground) {
@@ -60,19 +78,32 @@ class WebRtcCallPeer extends CallPeer with ChangeNotifier {
         'Вернись в приложение, чтобы начать звонок.',
       );
     }
-    await localRenderer.initialize();
-    _localReady = true;
-    _checkOpen();
-    await remoteRenderer.initialize();
-    _remoteReady = true;
-    _checkOpen();
-    _pc = await createPeerConnection({
-      'iceServers': iceServers,
-      'iceTransportPolicy': _relayOnly ? 'relay' : 'all',
-      'sdpSemantics': 'unified-plan',
-      'bundlePolicy': 'max-bundle',
-      'iceCandidatePoolSize': 2,
-    });
+    // Also normalize here for callers which construct CallConfiguration
+    // directly instead of loading it through the HTTP API.
+    final nativeIceServers = normalizeIceServers(iceServers);
+    await _runStage(
+      'rtc_initialize',
+      'Не удалось подготовить звонок на этом телефоне. Попробуй ещё раз.',
+      () async {
+        await localRenderer.initialize();
+        _localReady = true;
+        _checkOpen();
+        await remoteRenderer.initialize();
+        _remoteReady = true;
+        _checkOpen();
+      },
+    );
+    _pc = await _runStage(
+      'peer_connection',
+      'Не удалось подготовить соединение для звонка. Попробуй ещё раз.',
+      () => createPeerConnection({
+        'iceServers': nativeIceServers,
+        'iceTransportPolicy': _relayOnly ? 'relay' : 'all',
+        'sdpSemantics': 'unified-plan',
+        'bundlePolicy': 'max-bundle',
+        'iceCandidatePoolSize': 2,
+      }),
+    );
     _checkOpen();
     _pc!.onIceCandidate = (candidate) {
       if (!_closed && candidate.candidate?.isNotEmpty == true) {
@@ -128,6 +159,7 @@ class WebRtcCallPeer extends CallPeer with ChangeNotifier {
     } catch (_) {
       throw const CallMediaException(
         'Не удалось включить камеру и микрофон. Разреши доступ к ним в настройках телефона.',
+        stage: 'media_capture',
       );
     }
     _checkOpen();
@@ -144,16 +176,24 @@ class WebRtcCallPeer extends CallPeer with ChangeNotifier {
       } catch (_) {
         throw const CallMediaException(
           'Не удалось запустить звонок на этом телефоне. Открой приложение и попробуй снова.',
+          stage: 'foreground_service',
         );
       }
     }
     _checkOpen();
-    localRenderer.srcObject = _local;
-    for (final track in _local!.getTracks()) {
-      final sender = await _pc!.addTrack(track, _local!);
-      if (track.kind == 'video') _videoSender = sender;
-      _checkOpen();
-    }
+    await _runStage(
+      'local_tracks',
+      'Не удалось подключить камеру и микрофон к звонку. Попробуй ещё раз.',
+      () async {
+        await localRenderer.setSrcObject(stream: _local);
+        _checkOpen();
+        for (final track in _local!.getTracks()) {
+          final sender = await _pc!.addTrack(track, _local!);
+          if (track.kind == 'video') _videoSender = sender;
+          _checkOpen();
+        }
+      },
+    );
     setBackground(_background);
     if (!kIsWeb) {
       try {
@@ -198,12 +238,28 @@ class WebRtcCallPeer extends CallPeer with ChangeNotifier {
   @override
   Future<Map<String, dynamic>> offer({bool iceRestart = false}) async {
     _checkOpen();
-    final description = await _pc!.createOffer({
-      'offerToReceiveAudio': true,
-      'offerToReceiveVideo': true,
-      if (iceRestart) 'iceRestart': true,
-    });
-    await _pc!.setLocalDescription(description);
+    if (iceRestart) {
+      // Android consumes legacy mandatory/optional SDP constraints and ignores
+      // a browser-style top-level iceRestart flag. Use the native method.
+      await _runStage(
+        'ice_restart',
+        'Не удалось восстановить соединение. Позвони ещё раз.',
+        () => _pc!.restartIce(),
+      );
+      _checkOpen();
+    }
+    final description = await _runStage(
+      'offer',
+      'Не удалось начать соединение для звонка. Попробуй ещё раз.',
+      () => _pc!.createOffer(),
+    );
+    _checkOpen();
+    await _runStage(
+      'local_description',
+      'Не удалось подготовить соединение для звонка. Попробуй ещё раз.',
+      () => _pc!.setLocalDescription(description),
+    );
+    _checkOpen();
     return {'sdp': description.sdp, 'type': description.type};
   }
 

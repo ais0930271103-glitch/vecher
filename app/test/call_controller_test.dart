@@ -40,6 +40,104 @@ void main() {
   });
 
   test(
+    'notifies acceptance and awaits sound cleanup before opening media',
+    () async {
+      final api = _FakeCallApi(_session(mine: true));
+      final peer = _FakeCallPeer();
+      final stopping = Completer<void>();
+      final stopEntered = Completer<void>();
+      final observed = <CallPhase>[];
+      final controller = _controller(
+        api,
+        peer,
+        beforeMedia: () async {
+          expect(observed, contains(CallPhase.connecting));
+          stopEntered.complete();
+          await stopping.future;
+        },
+      );
+      controller.addListener(() => observed.add(controller.phase));
+      await controller.start();
+      api.current = _session(mine: true, status: 'active');
+      final polling = controller.poll();
+      await stopEntered.future;
+      expect(peer.initializeCalls, 0);
+      stopping.complete();
+      await polling;
+      expect(peer.initializeCalls, 1);
+    },
+  );
+
+  test(
+    'disposing while sound stop is pending never opens late media',
+    () async {
+      final api = _FakeCallApi(_session(mine: false, status: 'active'));
+      final peer = _FakeCallPeer();
+      final stopping = Completer<void>();
+      final stopEntered = Completer<void>();
+      final controller = _controller(
+        api,
+        peer,
+        beforeMedia: () async {
+          stopEntered.complete();
+          await stopping.future;
+        },
+      );
+      final starting = controller.start(callId: api.current.id);
+      await stopEntered.future;
+      controller.dispose();
+      stopping.complete();
+      await starting;
+      expect(peer.initializeCalls, 0);
+      expect(peer.isOpen, isFalse);
+      expect(api.sent, isEmpty);
+    },
+  );
+
+  test(
+    'refresh waits for an older poll then observes a newly ended call',
+    () async {
+      final api = _FakeCallApi(_session(mine: true));
+      final peer = _FakeCallPeer();
+      final controller = _controller(api, peer);
+      await controller.start();
+      final previousRequests = api.requestedCursors.length;
+      final oldResponse = CallSignalBatch(
+        call: api.current,
+        signals: [],
+        cursor: 0,
+      );
+      final oldGate = Completer<CallSignalBatch>();
+      api.pollGate = oldGate;
+      api.pollEntered = Completer<void>();
+      final olderPoll = controller.poll();
+      await api.pollEntered!.future;
+      final refreshing = controller.refresh();
+      api.current = _session(mine: true, status: 'ended', endReason: 'cancel');
+      oldGate.complete(oldResponse);
+      await olderPoll;
+      expect(await refreshing, isTrue);
+      expect(api.requestedCursors.length, previousRequests + 2);
+      expect(controller.phase, CallPhase.ended);
+      expect(peer.initializeCalls, 0);
+    },
+  );
+
+  test(
+    'failed fresh poll does not approve resuming a stale ringtone',
+    () async {
+      final api = _FakeCallApi(_session(mine: true));
+      final peer = _FakeCallPeer();
+      final controller = _controller(api, peer);
+      await controller.start();
+      api.failPolling = true;
+      expect(await controller.refresh(), isFalse);
+      expect(controller.phase, CallPhase.ringing);
+      expect(peer.initializeCalls, 0);
+    },
+  );
+
+  test(
     'an offer is sent before ICE emitted synchronously inside offer()',
     () async {
       final api = _FakeCallApi(_session(mine: true, status: 'active'));
@@ -341,8 +439,17 @@ void main() {
   });
 }
 
-CallController _controller(_FakeCallApi api, _FakeCallPeer peer) {
-  final controller = CallController(api: api, peer: peer, autoPoll: false);
+CallController _controller(
+  _FakeCallApi api,
+  _FakeCallPeer peer, {
+  Future<void> Function()? beforeMedia,
+}) {
+  final controller = CallController(
+    api: api,
+    peer: peer,
+    autoPoll: false,
+    beforeMedia: beforeMedia,
+  );
   addTearDown(controller.dispose);
   return controller;
 }
@@ -384,6 +491,8 @@ class _FakeCallApi implements CallApi {
   Completer<CallConfiguration>? configurationGate;
   Completer<CallSession>? startGate;
   Completer<CallSession>? acceptGate;
+  Completer<CallSignalBatch>? pollGate;
+  Completer<void>? pollEntered;
   final startEntered = Completer<void>();
   final acceptEntered = Completer<void>();
   final List<CallSignal> received = [];
@@ -432,6 +541,12 @@ class _FakeCallApi implements CallApi {
   @override
   Future<CallSignalBatch> signals(String id, int after) async {
     requestedCursors.add(after);
+    final gate = pollGate;
+    if (gate != null) {
+      pollGate = null;
+      pollEntered?.complete();
+      return await gate.future;
+    }
     if (failPolling) throw _timeout('/calls/$id/signals');
     return CallSignalBatch(
       call: current,

@@ -7,6 +7,9 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/api.dart' show errorText;
 import 'call_api.dart';
+import 'call_media_exception.dart';
+
+export 'call_media_exception.dart' show CallMediaException;
 
 enum CallPhase {
   loading,
@@ -30,11 +33,6 @@ abstract class CallPeer {
   Future<void> close();
 }
 
-class CallMediaException implements Exception {
-  const CallMediaException(this.message);
-  final String message;
-}
-
 class _OutgoingSignal {
   _OutgoingSignal(this.kind, this.data, this.clientId);
   final String kind;
@@ -47,6 +45,7 @@ class CallController extends ChangeNotifier {
     required this.api,
     required this.peer,
     this.autoPoll = true,
+    this.beforeMedia,
   }) {
     peer.onLocalIce = _localIce;
     peer.onConnection = _connectionChanged;
@@ -55,6 +54,7 @@ class CallController extends ChangeNotifier {
   final CallApi api;
   final CallPeer peer;
   final bool autoPoll;
+  final Future<void> Function()? beforeMedia;
   final String _signalPrefix = List.generate(
     16,
     (_) => Random.secure().nextInt(256).toRadixString(16).padLeft(2, '0'),
@@ -66,6 +66,7 @@ class CallController extends ChangeNotifier {
   CallConfiguration? _configuration;
   CallPhase phase = CallPhase.loading;
   String? error;
+  String? errorStage;
   String? networkNotice;
   DateTime? connectedAt;
   int _cursor = 0;
@@ -73,13 +74,14 @@ class CallController extends ChangeNotifier {
   int _networkFailures = 0;
   int _restartAttempts = 0;
   bool _disposed = false;
-  bool _polling = false;
   bool _sending = false;
   bool _remoteReady = false;
   bool _publishIce = false;
   bool _accepting = false;
   bool _negotiating = false;
   Future<void>? _mediaFuture;
+  Future<void>? _pollFuture;
+  int _serverRevision = 0;
   Timer? _pollTimer;
   Timer? _connectionDeadline;
   Timer? _restartTimer;
@@ -194,6 +196,10 @@ class CallController extends ChangeNotifier {
 
   Future<void> _initializeMedia() async {
     try {
+      // Ringing owns transient audio focus. Release it before WebRTC starts its
+      // own audio session, and honour a hang-up while the native stop is pending.
+      await beforeMedia?.call();
+      if (!_alive) return;
       await peer.initialize(_configuration!.iceServers);
       if (!_alive) {
         await peer.close();
@@ -204,7 +210,8 @@ class CallController extends ChangeNotifier {
     } catch (e) {
       if (e is CallMediaException) rethrow;
       throw const CallMediaException(
-        'Не удалось запустить камеру и звук. Попробуй позвонить ещё раз.',
+        'Не удалось подготовить видеозвонок. Попробуй позвонить ещё раз.',
+        stage: 'media_initialize',
       );
     }
   }
@@ -283,12 +290,27 @@ class CallController extends ChangeNotifier {
   }
 
   /// One bounded polling cycle; it also serves as the server heartbeat.
-  Future<void> poll() async {
-    if (!_alive || _polling || session == null) return;
-    _polling = true;
+  Future<void> poll() {
+    if (!_alive || session == null) return Future<void>.value();
+    return _pollFuture ??= _pollOnce().whenComplete(() => _pollFuture = null);
+  }
+
+  /// A newly visible screen must not resume ringing from a response requested
+  /// before it went into the background. Wait for that poll, then fetch again.
+  Future<bool> refresh() async {
+    final pending = _pollFuture;
+    if (pending != null) await pending;
+    if (!_alive || session == null) return false;
+    final previous = _serverRevision;
+    await poll();
+    return _serverRevision > previous;
+  }
+
+  Future<void> _pollOnce() async {
     try {
       final batch = await api.signals(session!.id, _cursor);
       if (!_alive) return;
+      _serverRevision++;
       session = batch.call;
       _networkFailures = 0;
       networkNotice = null;
@@ -297,7 +319,10 @@ class CallController extends ChangeNotifier {
         return;
       }
       if (batch.call.active) {
-        if (phase == CallPhase.ringing) phase = CallPhase.connecting;
+        if (phase == CallPhase.ringing) {
+          phase = CallPhase.connecting;
+          _changed();
+        }
         await _ensureMedia();
         if (!_alive) return;
         for (final signal in batch.signals) {
@@ -342,8 +367,6 @@ class CallController extends ChangeNotifier {
           _changed();
         }
       }
-    } finally {
-      _polling = false;
     }
   }
 
@@ -437,6 +460,7 @@ class CallController extends ChangeNotifier {
   void _fail(Object e) {
     if (!_alive) return;
     error = e is CallMediaException ? e.message : errorText(e);
+    errorStage = e is CallMediaException ? e.stage : null;
     final id = session?.id;
     _finish(CallPhase.failed);
     if (id != null) unawaited(_bestEffortEnd(id));

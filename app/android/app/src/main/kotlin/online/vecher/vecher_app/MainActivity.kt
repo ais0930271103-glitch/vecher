@@ -11,6 +11,10 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var callFeedback: CallFeedback? = null
+    private var feedbackChannel: MethodChannel? = null
+    private var activityResumed = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Запрет скриншотов включён сразу, ещё до старта Flutter; дальше приложение
@@ -20,6 +24,28 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        callFeedback?.dispose()
+        callFeedback = CallFeedback(this).also { it.setForeground(activityResumed) }
+        feedbackChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vecher/call_feedback").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                val owner = call.argument<Number>("owner")?.toLong()
+                val generation = call.argument<Number>("generation")?.toLong()
+                if (owner == null || generation == null || owner <= 0 || generation <= 0) {
+                    result.error("invalid_feedback_request", "Некорректная команда звука", null)
+                    return@setMethodCallHandler
+                }
+                when (call.method) {
+                    "play" -> result.success(callFeedback?.play(owner, generation,
+                        call.argument<Boolean>("incoming") ?: false,
+                        call.argument<Number>("durationMs")?.toLong() ?: 0L) ?: false)
+                    "stop" -> {
+                        callFeedback?.stop(owner, generation)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "vecher/call").setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {
@@ -83,5 +109,30 @@ class MainActivity : FlutterActivity() {
                 result.notImplemented()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        callFeedback?.setForeground(true)
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        callFeedback?.setForeground(false)
+        super.onPause()
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        feedbackChannel?.setMethodCallHandler(null)
+        feedbackChannel = null
+        callFeedback?.dispose()
+        callFeedback = null
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onDestroy() {
+        callFeedback?.dispose()
+        super.onDestroy()
     }
 }
