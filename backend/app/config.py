@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     release_token: str = ""
     # Адрес сайта для ссылок-приглашений: <public_url>/i/<код>
     public_url: str = "https://вечер.online"
-    free_plans: int = 1  # сколько планов к совпадениям паре открывается без подписки
+    # Основные планы бесплатны без квоты. Прежний VECHER_FREE_PLANS игнорируется.
     # Push: путь к ключу сервисного аккаунта Firebase (секрет, в git не хранится).
     firebase_credentials: str = "firebase-key.json"
     scheduler_enabled: bool = True  # фоновая отправка писем, сюрпризов, напоминаний, дат

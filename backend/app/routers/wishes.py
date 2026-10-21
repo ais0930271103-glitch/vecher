@@ -65,7 +65,7 @@ def _effective(mine: str, theirs: str) -> str:
 
 
 def _allowed(effective: str) -> tuple[str, ...]:
-    """Уровни карточек, которые показываем в «Вечере» (выше APP_MAX_LEVEL — только «Вечер. Ночь»)."""
+    """Уровни основного «Вечера»; будущий раздел 18+ не открывается выбором уровня."""
     cap = min(LEVEL_INDEX[effective], LEVEL_INDEX[APP_MAX_LEVEL])
     return LEVELS[: cap + 1]
 
@@ -130,7 +130,7 @@ class DeckOut(BaseModel):
 class LevelOut(BaseModel):
     mine: str        # что выбрал я
     effective: str   # что открыто паре: меньший из двух выборов (выбор партнёра отдельно не раскрываем)
-    night_open: bool  # оба выбрали «Жарко» — можно предложить «Вечер. Ночь»
+    night_open: bool  # совместимый сигнал интереса обоих к hot, не право доступа к «Вечер 18+»
 
 
 class LevelIn(BaseModel):
@@ -236,9 +236,9 @@ async def set_level(body: LevelIn, ctx: PairContext = Depends(prep_special_pair)
     mine, theirs = await _levels(session, ctx)
     effective = _effective(mine, theirs)
     if effective == "hot" and ctx.partner_id:
-        # Оба готовы к «Ночи» — сообщаем обоим один раз, без подробностей на экране блокировки.
+        # Сигнал интереса обоих; это не подтверждение возраста, оплаты или доступа к 18+.
         for uid in (ctx.user.id, ctx.partner_id):
-            await notify(session, uid, "Вечер", "В «Вечере» открылось кое-что новое для вас двоих",
+            await notify(session, uid, "Вечер", "Настройки для вас двоих обновлены",
                          {"open": "wishes"}, key=f"night:{ctx.pair.id}:{uid}", pair_id=ctx.pair.id)
     await invalidate_pair(session, ctx, ["wishes", "plans"])
     await session.commit()

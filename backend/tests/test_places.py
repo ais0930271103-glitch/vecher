@@ -22,7 +22,9 @@ async def test_places_for_plan(client):
 
     p = (await client.get(f"/plans/{cid}", headers=ha)).json()
     assert p["places_available"] is True
-    assert (await client.get(f"/plans/{cid}/places", headers=ha)).status_code == 402  # план ещё не открыт
+    unopened = await client.get(f"/plans/{cid}/places", headers=ha)
+    assert unopened.status_code == 403  # явное открытие плана, не требование оплаты
+    assert unopened.json()["detail"] == "Сначала откройте план"
     await client.post(f"/plans/{cid}/open", headers=ha)
 
     # У Ани аллергия на рыбу и любимая еда — паста.

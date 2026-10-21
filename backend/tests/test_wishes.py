@@ -134,10 +134,10 @@ async def test_levels_by_more_careful_partner(client):
     await client.put("/wishes/level", headers=hb, json={"level": "warm"})
     assert (await client.post("/wishes/swipe", headers=ha, json={"card_id": spicy["id"], "choice": "yes"})).status_code == 403
 
-    # «Жарко» у обоих: в «Вечере» карточек «Жарко» нет — только предложение «Вечер. Ночь».
+    # «Жарко» у обоих — только сигнал интереса; контент будущего раздела 18+ не открывается.
     await client.put("/wishes/level", headers=ha, json={"level": "hot"})
     r = (await client.put("/wishes/level", headers=hb, json={"level": "hot"})).json()
     assert r["effective"] == "hot" and r["night_open"] is True
     d = (await client.get("/wishes/decks", headers=ha)).json()
     assert all(x["locked"] == 0 for x in d["decks"])  # «Остро» открыто целиком, «Жарко» здесь не считается
-    assert sum(1 for _, _, body, _ in push.outbox if "открылось кое-что новое" in body) == 2
+    assert sum(1 for _, _, body, _ in push.outbox if body == "Настройки для вас двоих обновлены") == 2
