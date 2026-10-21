@@ -33,12 +33,15 @@ services:
       VECHER_DATABASE_URL: postgresql+asyncpg://vecher:${POSTGRES_PASSWORD}@db:5432/vecher
       VECHER_FIREBASE_CREDENTIALS: /run/vecher/firebase-key.json
       VECHER_DOWNLOADS_DIR: /srv/downloads
+      VECHER_UPLOADS_DIR: /srv/uploads
       # Ссылки-приглашения ведут на страницу этого сервера: https://api-test.вечер.online/i/КОД
       VECHER_PUBLIC_URL: https://api-test.xn--b1aga8b7a.online
     volumes:
       - ./secrets:/run/vecher:ro
       # Обновления приложения: vecher.apk и version.json (кладёт автосборка GitHub или app/release.ps1 с ПК)
       - /opt/vecher-test/downloads:/srv/downloads
+      # Приватные вложения: зашифрованные файлы, доступны только через API с авторизацией.
+      - /opt/vecher-test/uploads:/srv/uploads
     ports: ["127.0.0.1:${API_PORT:-8092}:8000"]
     mem_limit: 320m
     healthcheck:

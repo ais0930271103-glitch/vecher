@@ -3,7 +3,7 @@
 # Ничего не трогает в krug: только свой проект Docker, свой порт 127.0.0.1:8092, свой файл Caddy.
 set -euo pipefail
 cd "$(dirname "$0")"
-mkdir -p /opt/vecher-test/downloads  # vecher.apk и version.json для обновления приложения
+bash ./prepare-storage.sh
 
 say() { printf '\n\033[1;33m== %s\033[0m\n' "$*"; }
 

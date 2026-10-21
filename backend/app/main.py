@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import create_all
-from .routers import app_update, auth, invite_page, chat, city, places, invites, pairs, plans, push, settings as settings_router, solo, today, us, wishes
+from . import attachments
+from .body_limits import CallBodyLimitMiddleware
+from .routers import app_update, auth, invite_page, calls, chat, city, places, invites, pairs, plans, push, settings as settings_router, solo, today, us, wishes
 from .scheduler import run_forever
 
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +41,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(CallBodyLimitMiddleware)
 app.include_router(auth.router)
 app.include_router(pairs.router)
 app.include_router(today.router)
@@ -50,7 +53,9 @@ app.include_router(solo.router)
 app.include_router(push.router)
 app.include_router(invites.router)
 app.include_router(city.router)
+app.include_router(attachments.router)
 app.include_router(chat.router)
+app.include_router(calls.router)
 app.include_router(app_update.router)
 app.include_router(invite_page.router)
 app.include_router(settings_router.router)

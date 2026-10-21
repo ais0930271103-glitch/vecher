@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from pydantic import model_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +41,19 @@ class Settings(BaseSettings):
     # Push: путь к ключу сервисного аккаунта Firebase (секрет, в git не хранится).
     firebase_credentials: str = "firebase-key.json"
     scheduler_enabled: bool = True  # фоновая отправка писем, сюрпризов, напоминаний, дат
+    # Приватные вложения: шифруются DATA_KEYS, никогда не раздаются как статика.
+    uploads_dir: str = "uploads"
+    attachment_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    attachment_pair_quota_bytes: int = Field(default=250 * 1024 * 1024, ge=1)
+    attachment_pending_ttl_hours: int = Field(default=24, ge=1, le=168)
+    # Coturn REST credentials: общий секрет только на сервере, клиенту — временный HMAC.
+    turn_urls: list[str] = []
+    stun_urls: list[str] = []
+    turn_secret: str = ""
+    turn_credential_ttl_seconds: int = Field(default=15000, ge=600, le=86400)
+    call_ring_timeout_seconds: int = Field(default=60, ge=15, le=120)
+    call_heartbeat_timeout_seconds: int = Field(default=90, ge=30, le=300)
+    call_max_duration_seconds: int = Field(default=14400, ge=60, le=43200)
     cors_origins: list[str] = ["http://localhost:3000"]
     # В dev разрешаем любой localhost-порт: flutter run -d chrome каждый раз берёт случайный порт.
     cors_dev_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"

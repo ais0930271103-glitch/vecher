@@ -13,6 +13,7 @@ from ..erase import erase_pair
 from ..models import DailyAnswer, Letter, Pair, PairMember, PairPause, ProfileFact, User, WishSwipe
 from ..security import current_user
 from ..push import notify
+from ..pair_lock import pair_lock
 
 router = APIRouter(prefix="/pairs", tags=["pairs"])
 
@@ -105,12 +106,15 @@ async def join(body: JoinIn, user: User = Depends(consented_user), session: Asyn
     pair = (await session.execute(select(Pair).where(Pair.invite_code == code))).scalar_one_or_none()
     if pair is None or pair.status != "pending":
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Приглашение не найдено или уже использовано")
-    if await _membership(session, user.id) is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Ты уже в паре или создал(а) своё приглашение")
-    session.add(PairMember(pair_id=pair.id, user_id=user.id, role="invited"))
-    pair.status = "active"
-    pair.invite_code = None  # одноразовый код
-    await session.commit()
+    async with pair_lock(session, pair.id, active=False) as pair:
+        if pair.status != "pending" or pair.invite_code != code:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Приглашение не найдено или уже использовано")
+        if await _membership(session, user.id) is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Ты уже в паре или создал(а) своё приглашение")
+        session.add(PairMember(pair_id=pair.id, user_id=user.id, role="invited"))
+        pair.status = "active"
+        pair.invite_code = None  # одноразовый код, захвачен под блокировкой пары
+        await session.commit()
     inviter = (await session.execute(
         select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
     )).scalar_one_or_none()
@@ -153,8 +157,9 @@ async def leave(user: User = Depends(current_user), session: AsyncSession = Depe
     partner = (await session.execute(
         select(PairMember.user_id).where(PairMember.pair_id == m.pair_id, PairMember.user_id != user.id)
     )).scalar_one_or_none()
-    await erase_pair(session, m.pair_id)
-    await session.commit()
+    async with pair_lock(session, m.pair_id, active=False):
+        await erase_pair(session, m.pair_id)
+        await session.commit()
     if partner:
         name = user.display_name or "Партнёр"
         await notify(session, partner, "Вечер", f"{name} завершил(а) вашу пару в «Вечере»", {"open": "today"},

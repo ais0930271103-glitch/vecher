@@ -11,3 +11,4 @@ httpx>=0.27
 google-auth>=2.29  # push через Firebase (FCM HTTP v1)
 cryptography>=42  # шифрование личных данных в базе (AES-GCM)
 requests>=2.31  # нужен google-auth для получения токена
+python-multipart>=0.0.18  # ограниченный приём файлов чата

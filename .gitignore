@@ -18,6 +18,7 @@ app/build/
 app/.flutter-plugins
 app/.flutter-plugins-dependencies
 app/pubspec.lock.bak
+/artifacts/
 *.iml
 .idea/
 .vscode/

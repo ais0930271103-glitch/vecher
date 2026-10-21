@@ -1,7 +1,13 @@
 """Общие фикстуры: свежая база на каждый тест, клиент, вход, пара."""
 import os
+import atexit
+import shutil
+import tempfile
+from pathlib import Path
 
-os.environ["VECHER_DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+_test_root = Path(tempfile.mkdtemp(prefix="vecher-backend-tests-"))
+atexit.register(shutil.rmtree, _test_root, True)
+os.environ["VECHER_DATABASE_URL"] = f"sqlite+aiosqlite:///{_test_root / 'test.db'}"
 os.environ["VECHER_ENV"] = "dev"
 os.environ["VECHER_SCHEDULER_ENABLED"] = "0"  # фоновые уведомления в тестах вызываем вручную
 os.environ["VECHER_FIREBASE_CREDENTIALS"] = "no-such-key.json"
@@ -13,6 +19,13 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def private_upload_directory(tmp_path, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "uploads_dir", str(tmp_path / "uploads"))
 
 
 @pytest.fixture(autouse=True)

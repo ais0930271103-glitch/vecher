@@ -8,7 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-RUN useradd --create-home --uid 10001 vecher
+# COPY сохраняет права checkout: код должен читаться и после umask 077 на хосте.
+RUN chmod -R a+rX /srv/app \
+    && useradd --create-home --uid 10001 vecher
 USER vecher
 
 EXPOSE 8000

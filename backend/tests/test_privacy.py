@@ -53,8 +53,8 @@ async def test_consent_personal_at_login_special_when_needed(client):
 
 
 async def test_push_settings_off_and_private(client):
-    push.outbox.clear()
     ha, hb = await make_pair(client)
+    push.outbox.clear()  # подготовка пары отправляет отдельное приветствие
     a = await uid(client, ha)
     assert (await client.get("/settings", headers=ha)).json() == {"push_enabled": True, "push_private": False}
 
@@ -69,8 +69,8 @@ async def test_push_settings_off_and_private(client):
 
 
 async def test_pause_mutes_and_only_author_lifts(client):
-    push.outbox.clear()
     ha, hb = await make_pair(client)
+    push.outbox.clear()  # проверяем уведомления после начала паузы, без события присоединения
     await client.put("/auth/me", headers=ha, json={"display_name": "Аня"})
     a, b = await uid(client, ha), await uid(client, hb)
 
