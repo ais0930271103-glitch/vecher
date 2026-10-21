@@ -8,6 +8,8 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../core/api.dart';
 import '../../core/privacy.dart';
+import '../../core/realtime_polling.dart';
+import '../../core/realtime_provider.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../us/us_screen.dart';
@@ -260,12 +262,12 @@ class _NoPairState extends ConsumerState<_NoPair> {
   }
 }
 
-final _prepProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+final prepProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final r = await ref.read(dioProvider).get('/pairs/prep');
   return Map<String, dynamic>.from(r.data as Map);
 });
 
-final _prepTodayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+final prepTodayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final r = await ref.read(dioProvider).get('/today');
   return Map<String, dynamic>.from(r.data as Map);
 });
@@ -281,16 +283,20 @@ class _Waiting extends ConsumerStatefulWidget {
 }
 
 class _WaitingState extends ConsumerState<_Waiting> {
-  Timer? _poll;
+  RealtimePoll? _poll;
 
   @override
   void initState() {
     super.initState();
     // Подготовка обновляется, а как только партнёр примет приглашение — откроется «Сегодня».
-    _poll = Timer.periodic(const Duration(seconds: 10), (_) {
-      ref.invalidate(_prepProvider);
-      ref.invalidate(pairProvider);
-    });
+    _poll = RealtimePoll(
+      controller: ref.read(realtimeControllerProvider),
+      interval: const Duration(seconds: 10),
+      onPoll: () {
+        ref.invalidate(prepProvider);
+        ref.invalidate(pairProvider);
+      },
+    );
   }
 
   @override
@@ -318,8 +324,8 @@ class _WaitingState extends ConsumerState<_Waiting> {
     if (text == null || text.trim().isEmpty) return;
     try {
       await ref.read(dioProvider).post('/today/answer', data: {'text': text.trim()});
-      ref.invalidate(_prepProvider);
-      ref.invalidate(_prepTodayProvider);
+      ref.invalidate(prepProvider);
+      ref.invalidate(prepTodayProvider);
       _toast('Готово — партнёр увидит ответ после своего');
     } catch (e) {
       _toast(errorText(e));
@@ -332,7 +338,7 @@ class _WaitingState extends ConsumerState<_Waiting> {
     if (text == null || text.trim().isEmpty) return;
     try {
       await ref.read(dioProvider).post('/letters', data: {'text': text.trim()});
-      ref.invalidate(_prepProvider);
+      ref.invalidate(prepProvider);
       _toast('Письмо ждёт — партнёр получит его утром в «Вечере»');
     } catch (e) {
       _toast(errorText(e));
@@ -341,8 +347,8 @@ class _WaitingState extends ConsumerState<_Waiting> {
 
   @override
   Widget build(BuildContext context) {
-    final prep = ref.watch(_prepProvider).valueOrNull;
-    final today = ref.watch(_prepTodayProvider).valueOrNull;
+    final prep = ref.watch(prepProvider).valueOrNull;
+    final today = ref.watch(prepTodayProvider).valueOrNull;
     final question = (today?['question'] as Map?)?['text'] as String?;
     final done = prep?['done'] as int? ?? 0;
     final swiped = prep?['swiped'] as int? ?? 0;
@@ -407,7 +413,7 @@ class _WaitingState extends ConsumerState<_Waiting> {
         done: about >= 3,
         onTap: () async {
           await context.push('/us/me');
-          ref.invalidate(_prepProvider);
+          ref.invalidate(prepProvider);
         },
       ),
       _PrepStep(

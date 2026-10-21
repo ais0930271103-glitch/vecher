@@ -12,9 +12,10 @@ from ..db import get_session
 from ..consent import CONSENT_VERSION
 from ..deps import has_consent
 from ..erase import erase_user
-from ..mailer import send_login_code
+from ..mailer import send_login_code, smtp_configured
 from ..models import Consent, LoginCode, PairMember, User, UserCity
 from ..push import notify
+from ..realtime import enqueue_invalidation, invalidate_profile
 from ..pair_lock import pair_lock
 from ..security import create_token, current_user, hash_otp, new_otp
 
@@ -71,6 +72,9 @@ async def _me_out(session: AsyncSession, user: User) -> MeOut:
 @router.post("/request-code")
 async def request_code(body: CodeRequest, session: AsyncSession = Depends(get_session)) -> dict:
     s = get_settings()
+    if not s.is_dev and not smtp_configured():
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Отправка писем не настроена. Обратись к администратору")
     email = body.email.lower()
     now = datetime.now(timezone.utc)
     recent = (await session.execute(
@@ -92,11 +96,9 @@ async def request_code(body: CodeRequest, session: AsyncSession = Depends(get_se
     await session.commit()
     if s.is_dev:
         await send_login_code(email, code)
-        log.warning("DEV login code for %s: %s", email, code)
         return {"sent": True, "dev_code": code}
     if s.env == "staging":
-        # Тестовый сервер: письмо уходит в фоне (не ждём почту), код дублируется в лог — в ответ никогда.
-        log.warning("Код для %s: %s", email, code)
+        # Тестовый сервер: письмо уходит в фоне; код не попадает в ответ или журнал.
         task = asyncio.create_task(send_login_code(email, code))
         _mail_tasks.add(task)
         task.add_done_callback(_mail_tasks.discard)
@@ -167,6 +169,7 @@ async def give_consent(body: ConsentIn, user: User = Depends(current_user),
     for kind in kinds:
         if kind not in have:
             session.add(Consent(user_id=user.id, kind=kind, version=CONSENT_VERSION))
+    await enqueue_invalidation(session, [user.id], ["all"])
     await session.commit()
     return await _me_out(session, user)
 
@@ -188,14 +191,16 @@ async def delete_account(user: User = Depends(current_user), session: AsyncSessi
     if pair_id:
         async with pair_lock(session, pair_id, active=False):
             await erase_user(session, user)
+            if partner_id:
+                await notify(session, partner_id, "Вечер",
+                             f"{name} удалил(а) аккаунт — ваша пара в «Вечере» завершена",
+                             {"open": "today"}, force=True)
+                await enqueue_invalidation(session, [partner_id], ["all"], force=True)
             await session.commit()
     else:
         await erase_user(session, user)
         await session.commit()
     log.info("Account deleted: %s", uid)
-    if partner_id:
-        await notify(session, partner_id, "Вечер", f"{name} удалил(а) аккаунт — ваша пара в «Вечере» завершена",
-                     {"open": "today"}, force=True)
     return {"deleted": True}
 
 
@@ -207,5 +212,6 @@ async def set_my_name(body: NameIn, user: User = Depends(current_user),
     if not name:
         raise HTTPException(422, "Введи имя")
     user.display_name = name
+    await invalidate_profile(session, user.id, ["pair", "us", "solo", "plans"])
     await session.commit()
     return await _me_out(session, user)

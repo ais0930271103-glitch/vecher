@@ -1,6 +1,6 @@
 """Фоновые уведомления по времени: письма к утру, сюрпризы, напоминания, важные даты.
 
-`tick(session, now)` можно вызывать сколько угодно раз — повторы отсекает PushLog.
+`tick(session, now)` можно вызывать сколько угодно раз — outbox сохраняет ключ события.
 """
 import asyncio
 import logging
@@ -14,6 +14,7 @@ from .config import get_settings
 from .db import SessionLocal
 from .models import Letter, PairDate, PairMember, Reminder, Surprise, utcnow
 from .push import display_name, notify
+from .realtime import enqueue_invalidation
 
 log = logging.getLogger("vecher.scheduler")
 
@@ -48,7 +49,11 @@ async def tick(session: AsyncSession, now: datetime | None = None) -> None:
             if to:
                 name = await display_name(session, l.from_id)
                 await notify(session, to, "Вечер", f"{name} оставил(а) тебе письмо",
-                             {"open": "today"}, key=f"letter:{l.id}")
+                             {"open": "today"}, key=f"letter:{l.id}", pair_id=l.pair_id)
+                await enqueue_invalidation(session, [to], ["today", "solo"],
+                                           pair_id=l.pair_id, key=f"letter:{l.id}")
+                await enqueue_invalidation(session, [l.from_id], ["solo"],
+                                           pair_id=l.pair_id, key=f"letter:{l.id}")
 
     # Сюрпризы, которые открылись.
     for s in (await session.execute(select(Surprise))).scalars().all():
@@ -57,7 +62,11 @@ async def tick(session: AsyncSession, now: datetime | None = None) -> None:
             to = await _partner_of(session, s.pair_id, s.from_id)
             if to:
                 await notify(session, to, "Вечер", "Сюрприз открылся — загляни в «Вечер»",
-                             {"open": "today"}, key=f"surprise-open:{s.id}")
+                             {"open": "today"}, key=f"surprise-open:{s.id}", pair_id=s.pair_id)
+                await enqueue_invalidation(session, [to], ["today", "solo"],
+                                           pair_id=s.pair_id, key=f"surprise-open:{s.id}")
+                await enqueue_invalidation(session, [s.from_id], ["solo"],
+                                           pair_id=s.pair_id, key=f"surprise-open:{s.id}")
 
     # Напоминания со временем.
     for r in (await session.execute(
@@ -69,7 +78,10 @@ async def tick(session: AsyncSession, now: datetime | None = None) -> None:
         partner = await _partner_of(session, r.pair_id, r.author_id)
         targets = {"me": [r.author_id], "partner": [partner], "both": [r.author_id, partner]}[r.target]
         for uid in filter(None, targets):
-            await notify(session, uid, "Напоминание", r.text, {"open": "reminders"}, key=f"reminder:{r.id}:{uid}")
+            await notify(session, uid, "Напоминание", r.text, {"open": "reminders"},
+                         key=f"reminder:{r.id}:{uid}", pair_id=r.pair_id)
+            await enqueue_invalidation(session, [uid], ["today", "us"],
+                                       pair_id=r.pair_id, key=f"reminder:{r.id}:{uid}")
 
     # Важные даты: за 14, 7, 2 дня и в сам день — после 10:00 по местному времени.
     tz = ZoneInfo(get_settings().timezone)
@@ -88,7 +100,11 @@ async def tick(session: AsyncSession, now: datetime | None = None) -> None:
                 select(PairMember.user_id).where(PairMember.pair_id == d.pair_id)
             )).scalars().all()
             for uid in members:
-                await notify(session, uid, "Вечер", body, {"open": "dates"}, key=f"date:{d.id}:{nxt}:{days}:{uid}")
+                await notify(session, uid, "Вечер", body, {"open": "dates"},
+                             key=f"date:{d.id}:{nxt}:{days}:{uid}", pair_id=d.pair_id)
+                await enqueue_invalidation(session, [uid], ["today", "us"],
+                                           pair_id=d.pair_id, key=f"date:{d.id}:{nxt}:{days}:{uid}")
+    await session.commit()
 
 
 def _days(n: int) -> str:
@@ -105,6 +121,6 @@ async def run_forever(interval: int = 60) -> None:
         try:
             async with SessionLocal() as session:
                 await tick(session)
-        except Exception:  # noqa: BLE001 — цикл не должен падать из-за одной ошибки
-            log.exception("Ошибка фоновых уведомлений")
+        except Exception:  # SQL exceptions can include private bind values.
+            log.error("Ошибка фоновых уведомлений; следующий проход повторит попытку")
         await asyncio.sleep(interval)

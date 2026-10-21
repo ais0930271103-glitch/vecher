@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api.dart';
 import 'push.dart';
 import 'router.dart';
+import 'session_changes.dart';
 import 'theme.dart';
 
 // ---------- Запрет скриншотов (Android FLAG_SECURE) ----------
@@ -49,10 +50,16 @@ Future<bool> checkPin(String pin) async => (await secureStorage.read(key: _pinKe
 
 /// Выйти из аккаунта на этом телефоне: отвязать push, забыть сессию и код-пароль.
 Future<void> signOut(Dio dio) async {
-  await stopPush(dio);
-  await clearToken();
-  await clearPin();
-  PinGate.unlock();
+  final revision = sessionChanges.begin();
+  try {
+    await stopPush(dio);
+    await clearToken();
+    await clearPin();
+    PinGate.unlock();
+  } finally {
+    // A failed push cleanup must not leave foreground refresh permanently suspended.
+    sessionChanges.finish(revision);
+  }
 }
 
 /// Закрывает всё приложение экраном кода, если код-пароль включён:
@@ -62,8 +69,11 @@ class PinGate extends StatefulWidget {
   final Widget child;
 
   static final _locked = ValueNotifier<bool>(false);
+  static final _ready = ValueNotifier<bool>(false);
   static bool get isLocked => _locked.value;
   static ValueListenable<bool> get lockedListenable => _locked;
+  static bool get isReady => _ready.value;
+  static ValueListenable<bool> get readyListenable => _ready;
 
   /// Код только что задан — не просить его сразу же.
   static void unlock() => _locked.value = false;
@@ -80,7 +90,12 @@ class _PinGateState extends State<PinGate> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     applySecureScreen();
-    hasPin().then((v) => PinGate._locked.value = v);
+    PinGate._ready.value = false;
+    hasPin().then((v) {
+      if (!mounted) return;
+      PinGate._locked.value = v;
+      PinGate._ready.value = true;
+    });
   }
 
   @override

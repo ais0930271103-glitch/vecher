@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import 'session_changes.dart';
+
 /// Адрес API. По умолчанию — локальный сервер:
 /// в браузере это localhost, в эмуляторе Android — 10.0.2.2 («localhost» вашего ПК изнутри эмулятора).
 /// Свой адрес: flutter run --dart-define=API_URL=https://api-test.вечер.online
@@ -15,8 +17,23 @@ const _tokenKey = 'vecher_token';
 final secureStorage = const FlutterSecureStorage();
 
 Future<String?> readToken() => secureStorage.read(key: _tokenKey);
-Future<void> saveToken(String token) => secureStorage.write(key: _tokenKey, value: token);
-Future<void> clearToken() => secureStorage.delete(key: _tokenKey);
+Future<void> saveToken(String token) async {
+  final revision = sessionChanges.begin();
+  try {
+    await secureStorage.write(key: _tokenKey, value: token);
+  } finally {
+    sessionChanges.finish(revision);
+  }
+}
+
+Future<void> clearToken() async {
+  final revision = sessionChanges.begin();
+  try {
+    await secureStorage.delete(key: _tokenKey);
+  } finally {
+    sessionChanges.finish(revision);
+  }
+}
 
 // Код из ссылки-приглашения (https://вечер.online/i/КОД): помним, пока человек входит и регистрируется.
 const _pendingInviteKey = 'vecher_pending_invite';

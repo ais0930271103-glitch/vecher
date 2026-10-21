@@ -16,6 +16,7 @@ from ..db import get_session
 from ..deps import PairContext, special_pair, today_date
 from ..models import Place, PlaceVote, ProfileFact, User, UserCity
 from ..push import notify
+from ..realtime import invalidate_pair
 from .city import current_city
 from .plans import _matched_plan, _unlock
 
@@ -162,8 +163,10 @@ async def vote(card_id: int, place_id: int, ctx: PairContext = Depends(special_p
         session.add(PlaceVote(pair_id=ctx.pair.id, user_id=ctx.user.id, card_id=card_id, place_id=place_id))
     else:
         await session.delete(row)
-    await session.commit()
     if row is None and place.partner:
         await notify(session, ctx.partner_id, "Вечер", f"Совпало место для вашего плана: {place.title}",
-                     {"open": "plan", "card_id": card_id}, key=f"place:{ctx.pair.id}:{card_id}:{place_id}")
+                     {"open": "plan", "card_id": card_id}, key=f"place:{ctx.pair.id}:{card_id}:{place_id}",
+                     pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["plans"])
+    await session.commit()
     return await _places_out(session, ctx, card_id, today)

@@ -1,0 +1,3306 @@
+{
+  "snapshot_commit": "5e65d4d69d3a039a902d85edc7f5faf248d2a4f8",
+  "tables": [
+    {
+      "name": "login_codes",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "length": 254,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "code_hash",
+          "type": "string",
+          "length": 64,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "expires_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "attempts",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "used_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_login_codes_email",
+          "columns": [
+            "email"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "pairs",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "invite_code",
+          "type": "string",
+          "length": 16,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_pairs_invite_code",
+          "columns": [
+            "invite_code"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "places",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": true,
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "length": 64,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "city",
+          "type": "string",
+          "length": 60,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "length": 120,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "length": 500,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "address",
+          "type": "string",
+          "length": 200,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "price",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "url",
+          "type": "string",
+          "length": 300,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "starts_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "demo",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "key"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_places_city",
+          "columns": [
+            "city"
+          ],
+          "unique": false
+        },
+        {
+          "name": "ix_places_kind",
+          "columns": [
+            "kind"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "push_log",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "length": 120,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "key"
+          ]
+        }
+      ],
+      "indices": []
+    },
+    {
+      "name": "questions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": true,
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "length": 300,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": []
+    },
+    {
+      "name": "users",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "length": 254,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "display_name",
+          "type": "string",
+          "length": 60,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_users_email",
+          "columns": [
+            "email"
+          ],
+          "unique": true
+        }
+      ]
+    },
+    {
+      "name": "wish_cards",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": true,
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "deck",
+          "type": "string",
+          "length": 24,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "length": 200,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "active",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "level",
+          "type": "string",
+          "length": 8,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": "warm",
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_wish_cards_deck",
+          "columns": [
+            "deck"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "activity",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "day",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_activity_per_day",
+          "columns": [
+            "pair_id",
+            "user_id",
+            "day"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_activity_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "chat_messages",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "encrypted": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "ref_kind",
+          "type": "string",
+          "length": 16,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "ref_id",
+          "type": "string",
+          "length": 64,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "ref_title",
+          "type": "text",
+          "encrypted": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "reply_to_id",
+          "type": "string",
+          "length": 36,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "reaction",
+          "type": "string",
+          "length": 8,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "deleted",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_chat_messages_created_at",
+          "columns": [
+            "created_at"
+          ],
+          "unique": false
+        },
+        {
+          "name": "ix_chat_messages_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "chat_reads",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "read_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_chat_read",
+          "columns": [
+            "pair_id",
+            "user_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_chat_reads_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "consents",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "accepted_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_consent",
+          "columns": [
+            "user_id",
+            "kind",
+            "version"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_consents_user_id",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "daily_answers",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "day",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "question_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "questions.id",
+              "ondelete": null
+            }
+          ]
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_one_answer_per_day",
+          "columns": [
+            "pair_id",
+            "user_id",
+            "day"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_daily_answers_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "daily_moods",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "day",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "kind",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "updated_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_mood_per_day",
+          "columns": [
+            "pair_id",
+            "user_id",
+            "day"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_daily_moods_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "device_tokens",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "token",
+          "type": "string",
+          "length": 512,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "platform",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "token"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_device_tokens_user_id",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "invites",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "length": 80,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "encrypted": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "length": 12,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "proposed_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "answered_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_invites_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "letters",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "deliver_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "read_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_letters_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "pair_calls",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "active_pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "to_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "length": 12,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "end_reason",
+          "type": "string",
+          "length": 16,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "accepted_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "ended_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "expires_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "caller_seen_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "callee_seen_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "active_pair_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_pair_calls_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "pair_dates",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "length": 80,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "day",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "yearly",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_by",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_pair_dates_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "pair_levels",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "level",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_pair_level",
+          "columns": [
+            "pair_id",
+            "user_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_pair_levels_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "pair_members",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "role",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "joined_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_one_pair_per_user",
+          "columns": [
+            "user_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_pair_members_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "pair_pauses",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "by_user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "since",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "pair_id"
+          ]
+        }
+      ],
+      "indices": []
+    },
+    {
+      "name": "pair_subscriptions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "until",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "source",
+          "type": "string",
+          "length": 16,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "pair_id"
+          ]
+        }
+      ],
+      "indices": []
+    },
+    {
+      "name": "partner_notes",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "author_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_partner_notes_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "place_votes",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "card_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "wish_cards.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "place_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "places.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_place_vote",
+          "columns": [
+            "pair_id",
+            "user_id",
+            "card_id",
+            "place_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_place_votes_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "plan_unlocks",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "card_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "wish_cards.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "free",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "scheduled_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_plan_unlock",
+          "columns": [
+            "pair_id",
+            "card_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_plan_unlocks_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "plan_votes",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "card_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "wish_cards.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "option",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_plan_vote",
+          "columns": [
+            "pair_id",
+            "user_id",
+            "card_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_plan_votes_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "profile_facts",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "key",
+          "type": "string",
+          "length": 32,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "value",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "updated_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_profile_fact",
+          "columns": [
+            "user_id",
+            "key"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_profile_facts_user_id",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "quiet_wishes",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_quiet_wishes_user_id",
+          "columns": [
+            "user_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "radar_signals",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "length": 24,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "day",
+          "type": "date",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "seen_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_radar_signals_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "reminders",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "author_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "target",
+          "type": "string",
+          "length": 8,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "length": 200,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "due_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "done_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_reminders_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "surprises",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "note",
+          "type": "text",
+          "encrypted": true,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": [
+        {
+          "name": "ix_surprises_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "user_cities",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "home_city",
+          "type": "string",
+          "length": 60,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "home_tz",
+          "type": "string",
+          "length": 40,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "travel_city",
+          "type": "string",
+          "length": 60,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "travel_tz",
+          "type": "string",
+          "length": 40,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "travel_until",
+          "type": "date",
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": []
+    },
+    {
+      "name": "user_settings",
+      "columns": [
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "push_enabled",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "push_private",
+          "type": "boolean",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [],
+      "indices": []
+    },
+    {
+      "name": "wish_swipes",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "card_id",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "wish_cards.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "choice",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "updated_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_one_swipe_per_card",
+          "columns": [
+            "pair_id",
+            "user_id",
+            "card_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_wish_swipes_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "wish_views",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "user_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "seen_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_wish_view",
+          "columns": [
+            "pair_id",
+            "user_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_wish_views_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "call_signals",
+      "columns": [
+        {
+          "name": "seq",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": true,
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "call_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pair_calls.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "client_id",
+          "type": "string",
+          "length": 64,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "length": 8,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "data",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": "uq_call_signal_retry",
+          "columns": [
+            "call_id",
+            "from_id",
+            "client_id"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_call_signals_call_id",
+          "columns": [
+            "call_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "chat_attachments",
+      "columns": [
+        {
+          "name": "id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "message_id",
+          "type": "string",
+          "length": 36,
+          "nullable": true,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "chat_messages.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "storage_key",
+          "type": "string",
+          "length": 32,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "encrypted": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "mime",
+          "type": "string",
+          "length": 127,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "size",
+          "type": "integer",
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "timezone": true,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "storage_key"
+          ]
+        }
+      ],
+      "indices": [
+        {
+          "name": "ix_chat_attachments_message_id",
+          "columns": [
+            "message_id"
+          ],
+          "unique": false
+        },
+        {
+          "name": "ix_chat_attachments_pair_id",
+          "columns": [
+            "pair_id"
+          ],
+          "unique": false
+        }
+      ]
+    },
+    {
+      "name": "chat_send_keys",
+      "columns": [
+        {
+          "name": "pair_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "pairs.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "from_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "users.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        },
+        {
+          "name": "client_id",
+          "type": "string",
+          "length": 64,
+          "nullable": false,
+          "primary_key": true,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": []
+        },
+        {
+          "name": "message_id",
+          "type": "string",
+          "length": 36,
+          "nullable": false,
+          "primary_key": false,
+          "autoincrement": "auto",
+          "server_default": null,
+          "foreign_keys": [
+            {
+              "target": "chat_messages.id",
+              "ondelete": "CASCADE"
+            }
+          ]
+        }
+      ],
+      "unique_constraints": [
+        {
+          "name": null,
+          "columns": [
+            "message_id"
+          ]
+        }
+      ],
+      "indices": []
+    }
+  ]
+}

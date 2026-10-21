@@ -1,4 +1,4 @@
-# Вечер — локальная разработка и staging.
+# Вечер — локальная разработка. Работающий сервер: infra/staging/.
 # Запуск: из папки infra/  →  docker compose --env-file .env up -d --build
 # Все порты слушают только 127.0.0.1. Наружу их выпускает Caddy на сервере.
 # mem_limit у каждого сервиса — чтобы «Вечер» на общем сервере не мешал krug.
@@ -30,14 +30,16 @@ services:
     mem_limit: 128m
 
   centrifugo:
-    image: centrifugo/centrifugo:v5
+    image: centrifugo/centrifugo:v6.9.7
     restart: unless-stopped
     command: ["centrifugo"]
     environment:
-      CENTRIFUGO_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_SECRET:?задайте в .env}
-      CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY:?задайте в .env}
-      CENTRIFUGO_ALLOWED_ORIGINS: "*"
-      CENTRIFUGO_ALLOW_USER_LIMITED_CHANNELS: "true"
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${CENTRIFUGO_TOKEN_SECRET:?задайте в .env}
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_API_KEY:?задайте в .env}
+      CENTRIFUGO_CLIENT_ALLOWED_ORIGINS: "http://localhost:5000 http://127.0.0.1:5000"
+      CENTRIFUGO_HTTP_SERVER_INTERNAL_PORT: "8001"
+      CENTRIFUGO_CHANNEL_NAMESPACES: '[{"name":"events"}]'
+      CENTRIFUGO_CLIENT_DISALLOW_ANONYMOUS_CONNECTION_TOKENS: "true"
     ports: ["127.0.0.1:${CENTRIFUGO_PORT:-8100}:8000"]
     mem_limit: 128m
 
@@ -72,6 +74,11 @@ services:
       VECHER_ENV: ${VECHER_ENV:-dev}
       VECHER_DATABASE_URL: postgresql+asyncpg://vecher:${POSTGRES_PASSWORD}@db:5432/vecher
       VECHER_JWT_SECRET: ${JWT_SECRET:?задайте в .env}
+      VECHER_REALTIME_ENABLED: ${VECHER_REALTIME_ENABLED:-false}
+      VECHER_REALTIME_WS_URL: ${VECHER_REALTIME_WS_URL:-ws://localhost:8100/connection/websocket}
+      VECHER_REALTIME_TOKEN_SECRET: ${CENTRIFUGO_TOKEN_SECRET}
+      VECHER_CENTRIFUGO_API_KEY: ${CENTRIFUGO_API_KEY}
+      VECHER_CENTRIFUGO_API_URL: http://centrifugo:8001/api
     ports: ["127.0.0.1:${API_PORT:-8090}:8000"]
     mem_limit: 256m
 

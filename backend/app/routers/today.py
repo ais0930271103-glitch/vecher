@@ -13,6 +13,7 @@ from ..db import get_session
 from ..deps import PairContext, active_pair, prep_pair, today_date
 from ..models import Activity, DailyAnswer, DailyMood, Question, RadarSignal, WishSwipe, utcnow
 from ..push import display_name, notify
+from ..realtime import enqueue_invalidation, invalidate_pair
 
 router = APIRouter(tags=["today"])
 
@@ -216,11 +217,12 @@ async def answer_today(
     q = await question_for_day(session, ctx.pair.id, day)
     session.add(DailyAnswer(pair_id=ctx.pair.id, user_id=ctx.user.id, day=day, question_id=q.id, text=text))
     await mark_activity(session, ctx, day)
-    await session.commit()
     name = await display_name(session, ctx.user.id)
     if ctx.partner_id:
         await notify(session, ctx.partner_id, "Вечер", f"{name} ответил(а) на вопрос дня",
-                 {"open": "today"}, key=f"answer:{ctx.pair.id}:{day}:{ctx.user.id}")
+                     {"open": "today"}, key=f"answer:{ctx.pair.id}:{day}:{ctx.user.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today", "solo", "pair"])
+    await session.commit()
     return await get_today(ctx, session, day)
 
 
@@ -242,9 +244,11 @@ async def send_radar(
         raise HTTPException(429, "На сегодня сигналов достаточно")
     session.add(RadarSignal(pair_id=ctx.pair.id, from_user_id=ctx.user.id, kind=body.kind, day=day))
     await mark_activity(session, ctx, day)
-    await session.commit()
     name = await display_name(session, ctx.user.id)
-    await notify(session, ctx.partner_id, "Вечер", f"{name}: «{RADAR_KINDS[body.kind]}»", {"open": "today"})
+    await notify(session, ctx.partner_id, "Вечер", f"{name}: «{RADAR_KINDS[body.kind]}»", {"open": "today"},
+                 pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today", "solo"])
+    await session.commit()
     return {"ok": True, "label": RADAR_KINDS[body.kind]}
 
 
@@ -254,12 +258,14 @@ async def radar_seen(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Отмечает все входящие сигналы партнёра как просмотренные."""
-    await session.execute(
+    changed = await session.execute(
         update(RadarSignal)
         .where(RadarSignal.pair_id == ctx.pair.id, RadarSignal.from_user_id == ctx.partner_id,
                RadarSignal.seen_at.is_(None))
         .values(seen_at=datetime.now(timezone.utc))
     )
+    if changed.rowcount:
+        await enqueue_invalidation(session, [ctx.user.id], ["today"], pair_id=ctx.pair.id)
     await session.commit()
     return {"ok": True}
 
@@ -281,6 +287,7 @@ async def set_mood(
     if body.kind is None:
         if row is not None:
             await session.delete(row)
+            await invalidate_pair(session, ctx, ["today"])
         await session.commit()
         return await get_today(ctx, session, day)
     if row is None:
@@ -288,9 +295,10 @@ async def set_mood(
     else:
         row.kind, row.updated_at = body.kind, utcnow()
     await mark_activity(session, ctx, day)
-    await session.commit()
     # В уведомлении — без самого состояния (телефон может лежать экраном вверх). Раз в день.
     name = await display_name(session, ctx.user.id)
     await notify(session, ctx.partner_id, "Вечер", f"{name} поделился(ась) настроением дня",
-                 {"open": "today"}, key=f"mood:{ctx.pair.id}:{day}:{ctx.user.id}")
+                 {"open": "today"}, key=f"mood:{ctx.pair.id}:{day}:{ctx.user.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today", "solo"])
+    await session.commit()
     return await get_today(ctx, session, day)

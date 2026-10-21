@@ -4,9 +4,9 @@ name: Тесты сервера
 on:
   push:
     branches: [main]
-    paths: ["backend/**", ".github/workflows/backend-tests.yml"]
+    paths: ["backend/**", "infra/**", ".github/workflows/backend-tests.yml"]
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend-tests.yml"]
+    paths: ["backend/**", "infra/**", ".github/workflows/backend-tests.yml"]
   workflow_dispatch:
 
 permissions:
@@ -15,10 +15,47 @@ permissions:
 jobs:
   tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vecher_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: vecher_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vecher_test"
+          --health-interval 5s --health-timeout 3s --health-retries 15
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
-      - run: pip install -r requirements.txt pytest pytest-asyncio
-      - run: python -m pytest -q
+      - run: pip install -r requirements-dev.txt
+      - name: SQLite regression
+        run: python -m pytest -q
+      - name: PostgreSQL16 regression
+        env:
+          VECHER_TEST_DATABASE_URL: postgresql+asyncpg://vecher_test:local-ci-only@127.0.0.1:5432/vecher_test
+          VECHER_OUTBOX_TEST_DATABASE_URL: postgresql+asyncpg://vecher_test:local-ci-only@127.0.0.1:5432/vecher_test
+        run: python -m pytest -q
+      - name: Deployment helpers
+        run: python -m pytest -q ../infra/staging/test_*.py ../infra/turn/tests
+      - name: Download verified Centrifugo6.9.7 test binary
+        run: |
+          curl --fail --location --retry 3 -o "$RUNNER_TEMP/centrifugo.tar.gz" https://github.com/centrifugal/centrifugo/releases/download/v6.9.7/centrifugo_6.9.7_linux_amd64.tar.gz
+          echo "96be0fe54646b59831302b77bfb8a1e71085302998197448ac461bf6880c8b40  $RUNNER_TEMP/centrifugo.tar.gz" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/centrifugo-test"
+          tar -xzf "$RUNNER_TEMP/centrifugo.tar.gz" -C "$RUNNER_TEMP/centrifugo-test"
+      - name: Real Centrifugo authentication and delivery
+        env:
+          VECHER_CENTRIFUGO_BIN: ${{ runner.temp }}/centrifugo-test/centrifugo
+        run: python -m pytest -q ../infra/staging/test_centrifugo_integration.py
+      - name: Compose validation and API image migration
+        run: |
+          cp ../infra/staging/env.example ../infra/staging/.env
+          POSTGRES_PASSWORD=local-ci-only docker compose -f ../infra/staging/docker-compose.yml --profile realtime config --quiet
+          docker build -t vecher-api-ci ../backend
+          docker run --rm -e VECHER_ENV=dev -e VECHER_DATABASE_URL=sqlite+aiosqlite:////tmp/image-check.db vecher-api-ci python -m app.migrate upgrade
+      - name: Shell syntax
+        run: bash -n ../infra/staging/deploy-realtime.sh ../infra/staging/update.sh ../infra/staging/install.sh

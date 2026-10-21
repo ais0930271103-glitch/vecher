@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .crypto import Encrypted
@@ -530,4 +530,46 @@ class CallSignal(Base):
     kind: Mapped[str] = mapped_column(String(8))
     data: Mapped[str] = mapped_column(Encrypted())
     size: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DeliveryOutbox(Base):
+    """Delivery intent committed together with the originating domain change.
+
+    Only identifiers, timings and safe error codes are plaintext. The entire
+    provider payload (including titles, names and tokens if ever added) is
+    encrypted with DATA_KEYS. Terminal rows keep their dedupe key, but no payload.
+    """
+
+    __tablename__ = "delivery_outbox"
+    __table_args__ = (
+        Index("ix_delivery_outbox_due", "state", "available_at", "lease_until"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(16))  # push | realtime
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    pair_id: Mapped[str | None] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), unique=True)
+    payload: Mapped[str | None] = mapped_column(Encrypted())
+    force: Mapped[bool] = mapped_column(Boolean, default=False)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    lease_owner: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeliveryReceipt(Base):
+    """One accepted/rejected token per intent; retries skip acknowledged devices."""
+
+    __tablename__ = "delivery_receipts"
+
+    outbox_id: Mapped[str] = mapped_column(ForeignKey("delivery_outbox.id", ondelete="CASCADE"), primary_key=True)
+    token_fingerprint: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))  # accepted | invalid
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

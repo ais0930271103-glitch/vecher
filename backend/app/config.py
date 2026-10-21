@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic import model_validator
 from pydantic import Field
@@ -41,6 +42,21 @@ class Settings(BaseSettings):
     # Push: путь к ключу сервисного аккаунта Firebase (секрет, в git не хранится).
     firebase_credentials: str = "firebase-key.json"
     scheduler_enabled: bool = True  # фоновая отправка писем, сюрпризов, напоминаний, дат
+    # Durable outbox: API writes intents in its transaction; leased workers deliver them.
+    outbox_enabled: bool = True
+    outbox_poll_seconds: float = Field(default=1.0, ge=0.1, le=60)
+    outbox_max_attempts: int = Field(default=8, ge=1, le=20)
+    outbox_lease_seconds: int = Field(default=90, ge=30, le=600)
+    outbox_ttl_seconds: int = Field(default=86400, ge=60, le=604800)
+    outbox_retry_base_seconds: float = Field(default=2.0, ge=0.1, le=60)
+    outbox_retry_max_seconds: float = Field(default=300.0, ge=1, le=3600)
+    # Personal invalidations via Centrifugo. Rollout is opt-in; push/polling stay available.
+    realtime_enabled: bool = False
+    realtime_ws_url: str = ""
+    centrifugo_api_url: str = "http://centrifugo:8000/api"
+    centrifugo_api_key: str = ""
+    realtime_token_secret: str = ""
+    realtime_token_ttl_seconds: int = Field(default=300, ge=60, le=900)
     # Приватные вложения: шифруются DATA_KEYS, никогда не раздаются как статика.
     uploads_dir: str = "uploads"
     attachment_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
@@ -66,6 +82,19 @@ class Settings(BaseSettings):
     def _strong_secret_outside_dev(self) -> "Settings":
         if self.env != "dev" and (len(self.jwt_secret) < 32 or "change-me" in self.jwt_secret):
             raise ValueError("VECHER_JWT_SECRET должен быть случайной строкой длиной от 32 символов")
+        if self.realtime_enabled:
+            if len(self.realtime_token_secret) < 32 or self.realtime_token_secret == self.jwt_secret:
+                raise ValueError("VECHER_REALTIME_TOKEN_SECRET: нужен отдельный случайный секрет от 32 символов")
+            if len(self.centrifugo_api_key) < 32:
+                raise ValueError("VECHER_CENTRIFUGO_API_KEY должен содержать от 32 символов")
+            api = urlparse(self.centrifugo_api_url)
+            ws = urlparse(self.realtime_ws_url)
+            if api.scheme not in {"http", "https"} or not api.hostname or api.username or api.password or api.fragment or api.query:
+                raise ValueError("VECHER_CENTRIFUGO_API_URL: требуется HTTP(S) URL без секретов и параметров")
+            if ws.scheme not in {"ws", "wss"} or not ws.hostname or ws.username or ws.password or ws.fragment or ws.query:
+                raise ValueError("VECHER_REALTIME_WS_URL: требуется WS(S) URL без секретов и параметров")
+            if ws.scheme != "wss" and (not self.is_dev or ws.hostname not in {"localhost", "127.0.0.1", "::1"}):
+                raise ValueError("VECHER_REALTIME_WS_URL: вне localhost-разработки требуется WSS")
         return self
 
 
