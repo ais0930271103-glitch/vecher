@@ -10,7 +10,7 @@ python -m app.migrate upgrade
 ```
 
 `check` only reads the schema version. A ready database prints
-`SCHEMA_HEAD_OK=0002_outbox`. `upgrade` prints `MIGRATION_OK=0002_outbox` after a
+`SCHEMA_HEAD_OK=0003_evenings`. `upgrade` prints `MIGRATION_OK=0003_evenings` after a
 successful transaction. On staging/prod, back up consistently and stop API writes
 before upgrading; the staging deployment script provides that sequence.
 
@@ -37,6 +37,14 @@ backfills data. Development can initialize a fresh database through the same
 migrations. `Base.metadata.create_all` remains available to isolated unit tests,
 but an unversioned database containing the new outbox tables is deliberately
 rejected by the real migration command.
+
+The third revision adds encrypted evening occurrences and private optional
+feedback. It does not rewrite previous plan unlocks, votes or schedules. Its
+contract and rollout constraints are in [EVENINGS.md](EVENINGS.md). An old 0.3.x
+API still expects revision `0002_outbox` and will refuse startup after 0003;
+simply restoring the old image is therefore **not a working rollback**. Prepare
+a compatible recovery image or an explicit verified-backup recovery plan before
+this migration. Do not stamp the database backwards or silently drop history.
 
 ## Delivery contract
 

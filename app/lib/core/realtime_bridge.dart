@@ -14,6 +14,7 @@ import '../features/wishes/matches_screen.dart';
 import '../features/wishes/places_screen.dart';
 import '../features/wishes/plan_screen.dart';
 import '../features/wishes/wishes_screen.dart';
+import '../features/wishes/evenings.dart';
 import 'api.dart';
 import 'privacy.dart';
 import 'realtime_controller.dart';
@@ -108,6 +109,7 @@ class _RealtimeBridgeState extends ConsumerState<RealtimeBridge>
       ref.invalidate(planProvider);
       ref.invalidate(placesProvider);
       ref.invalidate(upcomingProvider);
+      invalidateEvenings(ref);
     }
     if (all || scopes.contains('chat')) ref.invalidate(chatUnreadProvider);
     if (all || scopes.contains('us')) {

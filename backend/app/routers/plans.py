@@ -16,6 +16,7 @@ from ..content.wishes import DECKS
 from ..db import get_session
 from ..deps import PairContext, active_pair, special_pair
 from ..models import PairSubscription, PlanUnlock, PlanVote, WishCard, utcnow
+from ..pair_lock import pair_lock
 from ..push import display_name, local_when, notify
 from ..realtime import invalidate_pair
 from .wishes import _aware, match_for_card
@@ -87,6 +88,7 @@ class PlanOut(BaseModel):
         description="Совместимость APK 6/7: ещё один бесплатный план всегда доступен; квоты нет.",
     )
     core_plans_unlimited: bool = True
+    evening_tracking_available: bool = True
     options: list[OptionOut]
     my_vote: int | None = None
     partner_vote: int | None = None
@@ -233,16 +235,19 @@ async def vote(card_id: int, body: VoteIn, ctx: PairContext = Depends(special_pa
 @router.post("/plans/{card_id}/schedule", response_model=PlanOut)
 async def schedule(card_id: int, body: ScheduleIn, ctx: PairContext = Depends(special_pair),
                    session: AsyncSession = Depends(get_session)):
-    unlock = await _require_unlocked(session, ctx, card_id)
-    if body.at is not None and body.at.tzinfo is None:
-        raise HTTPException(422, "Укажи время с часовым поясом")
-    # Храним в UTC: SQLite не сохраняет часовой пояс.
-    unlock.scheduled_at = body.at.astimezone(timezone.utc) if body.at else None
-    if body.at is not None:
-        name = await display_name(session, ctx.user.id)
-        await notify(session, ctx.partner_id, "Вечер", f"{name} запланировал(а) вечер: {local_when(body.at)}",
-                     {"open": "plan", "card_id": card_id}, key=f"plan:{card_id}:{ctx.pair.id}:{body.at.isoformat()}",
-                     pair_id=ctx.pair.id)
-    await invalidate_pair(session, ctx, ["plans", "wishes", "today"])
-    await session.commit()
-    return await _plan_out(session, ctx, card_id)
+    # Start consumes the previous appointment under the same lock. A new
+    # appointment made concurrently must be applied after that consumption.
+    async with pair_lock(session, ctx.pair.id):
+        unlock = await _require_unlocked(session, ctx, card_id)
+        if body.at is not None and body.at.tzinfo is None:
+            raise HTTPException(422, "Укажи время с часовым поясом")
+        # Храним в UTC: SQLite не сохраняет часовой пояс.
+        unlock.scheduled_at = body.at.astimezone(timezone.utc) if body.at else None
+        if body.at is not None:
+            name = await display_name(session, ctx.user.id)
+            await notify(session, ctx.partner_id, "Вечер", f"{name} запланировал(а) вечер: {local_when(body.at)}",
+                         {"open": "plan", "card_id": card_id}, key=f"plan:{card_id}:{ctx.pair.id}:{body.at.isoformat()}",
+                         pair_id=ctx.pair.id)
+        await invalidate_pair(session, ctx, ["plans", "wishes", "today"])
+        await session.commit()
+        return await _plan_out(session, ctx, card_id)

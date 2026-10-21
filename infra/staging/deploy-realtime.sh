@@ -118,6 +118,10 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 bash prepare-storage.sh
 docker compose build api
+# This script restores the previous API image on failure. Starting with 0.4.0,
+# the previous strict-head API cannot run after a schema transition. Stop before
+# backup/write interruption until the release has a compatible recovery path.
+docker compose run --rm --no-deps api python - < check-deploy-schema.py
 # Login codes must go to the user's mailbox, never to server logs. Check only
 # configuration presence here; this command does not send mail or print secrets.
 docker compose run --rm --no-deps api python -c \

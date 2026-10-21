@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../chat/chat_screen.dart';
+import 'evening_screen.dart';
+import 'matches_screen.dart' show matchesProvider;
 import 'places_screen.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
@@ -182,7 +184,9 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
     return [
       Text(
         chosen != null
-            ? 'Вы выбрали вместе — осталось назначить время.'
+            ? p['evening_tracking_available'] == true
+                ? 'Вы выбрали вместе — можно назначить время или начать сейчас.'
+                : 'Вы выбрали вместе — осталось назначить время.'
             : theirs != null && mine == null
                 ? 'Партнёр уже выбрал вариант. Твой ход!'
                 : mine != null && theirs != null
@@ -191,6 +195,16 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
         style: const TextStyle(color: VColors.soft, fontSize: 15),
       ),
       const SizedBox(height: 14),
+      if (p['evening_tracking_available'] == true && chosen != null)
+        EveningStartCard(
+          cardId: widget.cardId,
+          option: chosen,
+          scheduled: scheduled,
+          onPlanChanged: () {
+            ref.invalidate(planProvider(widget.cardId));
+            ref.invalidate(matchesProvider);
+          },
+        ),
       for (final o in options)
         _OptionCard(
           o: o,

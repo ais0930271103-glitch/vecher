@@ -13,6 +13,7 @@ import '../../core/realtime_provider.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../us/us_screen.dart';
+import '../wishes/evenings.dart' show currentEveningProvider;
 import 'invites.dart';
 import 'paired_today.dart';
 
@@ -49,10 +50,12 @@ class TodayScreen extends ConsumerWidget {
           onRefresh: () async {
             ref.invalidate(todayProvider);
             ref.invalidate(upcomingProvider);
+            ref.invalidate(currentEveningProvider);
             ref.invalidate(remindersProvider);
             ref.invalidate(datesProvider);
             ref.invalidate(invitesProvider);
-            await ref.refresh(pairProvider.future);
+            ref.invalidate(pairProvider);
+            await ref.read(pairProvider.future);
           },
           child: ListView(padding: EdgeInsets.fromLTRB(20, paired ? 24 : 20, 20, 20), children: [
             pair.when(
