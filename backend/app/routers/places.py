@@ -88,7 +88,7 @@ def _short(text: str, n: int = 50) -> str:
 async def _places_out(session: AsyncSession, ctx: PairContext, card_id: int, today: date) -> PlacesOut:
     card, _, _ = await _matched_plan(session, ctx, card_id)
     if await _unlock(session, ctx, card_id) is None:
-        raise HTTPException(402, "Сначала откройте план")
+        raise HTTPException(403, "Сначала откройте план")
     kinds = CARD_KINDS.get(card.text)
     if not kinds:
         raise HTTPException(404, "Для этого плана места пока не подбираются")

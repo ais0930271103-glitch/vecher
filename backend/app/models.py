@@ -151,10 +151,10 @@ class WishView(Base):
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-# ---------- Планы к совпадениям и подписка ----------
+# ---------- Планы к совпадениям и история прежней подписки ----------
 
 class PairSubscription(Base):
-    """Подписка «Вечер+» — одна на пару, открывается обоим. Оплата подключается на этапе 5."""
+    """История «Вечер+». Не ограничивает бесплатные планы и не даёт доступ к «Вечер 18+»."""
 
     __tablename__ = "pair_subscriptions"
 
@@ -166,7 +166,7 @@ class PairSubscription(Base):
 
 
 class PlanUnlock(Base):
-    """План к совпадению открыт для пары (бесплатный или по подписке)."""
+    """План к совпадению открыт для пары. Новые открытия бесплатны; история сохраняется."""
 
     __tablename__ = "plan_unlocks"
     __table_args__ = (UniqueConstraint("pair_id", "card_id", name="uq_plan_unlock"),)

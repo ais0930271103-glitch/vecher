@@ -255,12 +255,12 @@ class _LevelPickerState extends ConsumerState<_LevelPicker> {
     final mine = _pending ?? widget.level['mine'] as String;
     final effective = widget.level['effective'] as String;
     final nightOpen = widget.level['night_open'] == true;
-    final shown = effective == 'hot' ? 'spicy' : effective; // «Жарко» в «Вечере» — это «Ночь»
+    final shown = effective == 'hot' ? 'spicy' : effective; // «Жарко» зарезервировано для будущего раздела 18+.
     String note;
     if (nightOpen) {
-      note = 'Вам открыто всё в «Вечере» — и режим «Ночь» для вас двоих.';
+      note = 'Вам открыто: «Остро». Раздел «Вечер 18+» пока готовится.';
     } else if (mine == 'hot' && effective == 'spicy') {
-      note = 'Вам открыто: «Остро». «Ночь» предложим, когда вы оба будете готовы.';
+      note = 'Вам открыто: «Остро». Уровень можно поменять в любой момент.';
     } else if ((_levelFlames[mine] ?? 1) > (_levelFlames[effective] ?? 1)) {
       note = 'Вам открыто: «${levelTitles[shown]}». Карточки посмелее откроются, когда вы оба будете готовы.';
     } else {
@@ -312,7 +312,7 @@ class _LevelPickerState extends ConsumerState<_LevelPicker> {
         Text(note, style: const TextStyle(color: VColors.muted, fontSize: 13, height: 1.4)),
         if (mine == 'hot' && !nightOpen) ...[
           const SizedBox(height: 4),
-          const Text('«Жарко» — это отдельное приложение «Вечер. Ночь» только для вас двоих.',
+          const Text('Уровень «Жарко» относится к будущему дополнительному разделу «Вечер 18+».',
               style: TextStyle(color: VColors.muted, fontSize: 13, height: 1.4)),
         ],
         if (nightOpen) ...[
@@ -324,16 +324,16 @@ class _LevelPickerState extends ConsumerState<_LevelPicker> {
               Row(children: [
                 const Icon(Icons.nightlight_round, color: VColors.gold),
                 const SizedBox(width: 8),
-                Text('Вечер. Ночь', style: display(20)),
+                Text('Вечер 18+', style: display(20)),
               ]),
               const SizedBox(height: 8),
               const Text(
-                'Вы оба выбрали «Жарко». Самые откровенные карточки и игры — в отдельном приложении, '
-                'только для вас двоих и только 18+.',
+                'Дополнительный платный раздел внутри приложения для взрослых. '
+                'Он пока недоступен. Основной «Вечер» остаётся бесплатным.',
                 style: TextStyle(color: VColors.soft, fontSize: 14, height: 1.4),
               ),
               const SizedBox(height: 12),
-              const GoldButton(height: 46, onPressed: null, child: Text('Скоро')),
+              const GoldButton(height: 46, onPressed: null, child: Text('В разработке')),
             ]),
           ),
         ],

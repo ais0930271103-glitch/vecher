@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,7 +66,10 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
       await action(ref.read(dioProvider));
       ref.invalidate(planProvider(widget.cardId));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorText(e))));
+      final message = e is DioException && e.response?.statusCode == 402
+          ? 'Сервис ещё не обновлён для бесплатных планов. Попробуйте позже.'
+          : errorText(e);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -134,7 +136,6 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
 
   List<Widget> _locked(Map<String, dynamic> p) {
     final options = (p['options'] as List).cast<Map>();
-    final freeLeft = p['free_plans_left'] as int;
     return [
       for (final o in options)
         Container(
@@ -146,7 +147,7 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
             border: Border.all(color: const Color(0x14FFFFFF)),
           ),
           child: Row(children: [
-            const Icon(Icons.lock_outline, color: VColors.lavender, size: 20),
+            const Icon(Icons.format_list_numbered, color: VColors.lavender, size: 20),
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -158,22 +159,13 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
           ]),
         ),
       const SizedBox(height: 10),
-      if (freeLeft > 0) ...[
-        GoldButton(
-          onPressed: _busy ? null : () => _call((dio) => dio.post('/plans/${widget.cardId}/open')),
-          child: const Text('Открыть план — бесплатно'),
-        ),
-        const SizedBox(height: 8),
-        const Text('Первый план — подарок. Остальные открываются с «Вечер+».',
-            textAlign: TextAlign.center, style: TextStyle(color: VColors.muted, fontSize: 13)),
-      ] else
-        _Paywall(
-          busy: _busy,
-          onDevActivate: () => _call((dio) async {
-            await dio.post('/subscription/dev-activate');
-            await dio.post('/plans/${widget.cardId}/open');
-          }),
-        ),
+      GoldButton(
+        onPressed: _busy ? null : () => _call((dio) => dio.post('/plans/${widget.cardId}/open')),
+        child: const Text('Открыть план — бесплатно'),
+      ),
+      const SizedBox(height: 8),
+      const Text('Все планы в основном «Вечере» бесплатны для вас обоих.',
+          textAlign: TextAlign.center, style: TextStyle(color: VColors.muted, fontSize: 13)),
     ];
   }
 
@@ -449,63 +441,6 @@ class _ScheduleCard extends StatelessWidget {
                 icon: const Icon(Icons.close, color: VColors.muted),
               ),
             ]),
-    );
-  }
-}
-
-class _Paywall extends StatelessWidget {
-  const _Paywall({required this.busy, required this.onDevActivate});
-  final bool busy;
-  final VoidCallback onDevActivate;
-
-  @override
-  Widget build(BuildContext context) {
-    const perks = [
-      'Планы ко всем совпадениям',
-      'Новые колоды каждый месяц',
-      'Колоды 18+ (с подтверждением возраста)',
-      'Одна подписка на двоих',
-    ];
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF2A2438), Color(0xFF1B1A2A)],
-        ),
-        border: Border.all(color: const Color(0x66F3C98B)),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          const Icon(Icons.auto_awesome, color: VColors.gold),
-          const SizedBox(width: 10),
-          Text('Вечер+', style: display(24)),
-        ]),
-        const SizedBox(height: 6),
-        const Text('Бесплатный план уже открыт. Остальные — с подпиской.',
-            style: TextStyle(color: VColors.soft)),
-        const SizedBox(height: 14),
-        for (final perk in perks)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(children: [
-              const Icon(Icons.check, size: 18, color: VColors.gold),
-              const SizedBox(width: 10),
-              Expanded(child: Text(perk)),
-            ]),
-          ),
-        const SizedBox(height: 16),
-        const GoldButton(onPressed: null, child: Text('Оформить — скоро')),
-        if (kDebugMode) ...[
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: busy ? null : onDevActivate,
-            child: const Text('Включить тестовую подписку (только для разработки)'),
-          ),
-        ],
-      ]),
     );
   }
 }

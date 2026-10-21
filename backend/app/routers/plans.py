@@ -1,16 +1,15 @@
-"""Планы к совпадениям и подписка «Вечер+».
+"""Бесплатные планы к совпадениям без ограничения количества.
 
-Первый план паре бесплатно (settings.free_plans), остальные — по подписке.
-Подписка одна на пару. Пока оплаты нет, в dev есть тестовая активация.
+Старые поля подписки сохранены для совместимости APK 6/7 и чтения истории.
+Они не управляют доступом к основным планам или будущему разделу «Вечер 18+».
 """
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import get_settings
 from ..content.plans import plan_for
 from ..content.places import CARD_KINDS
 from ..content.wishes import DECKS
@@ -24,7 +23,12 @@ from .wishes import _aware, match_for_card
 router = APIRouter(tags=["plans"])
 
 
-# ---------- подписка ----------
+# APK 6/7 показывают кнопку открытия только при free_plans_left > 0.
+# Значение означает «ещё один бесплатный план доступен», а не остаток квоты.
+LEGACY_FREE_PLAN_AVAILABLE = 1
+
+
+# ---------- прежний контракт подписки (только чтение) ----------
 
 async def premium_until(session: AsyncSession, pair_id: str) -> datetime | None:
     until = (await session.execute(
@@ -36,45 +40,25 @@ async def premium_until(session: AsyncSession, pair_id: str) -> datetime | None:
     return until if until > utcnow() else None
 
 
-async def free_plans_left(session: AsyncSession, pair_id: str) -> int:
-    used = (await session.execute(
-        select(func.count(PlanUnlock.id)).where(PlanUnlock.pair_id == pair_id, PlanUnlock.free.is_(True))
-    )).scalar_one()
-    return max(0, get_settings().free_plans - used)
-
-
 class SubscriptionOut(BaseModel):
+    # Только прежняя запись «Вечер+»; это не право на будущий раздел 18+.
     premium: bool
     until: datetime | None
-    free_plans_left: int
+    free_plans_left: int = Field(
+        default=LEGACY_FREE_PLAN_AVAILABLE,
+        deprecated=True,
+        description="Совместимость APK 6/7: ещё один бесплатный план всегда доступен; квоты нет.",
+    )
+    core_plans_unlimited: bool = True
 
 
 async def _subscription(session: AsyncSession, pair_id: str) -> SubscriptionOut:
     until = await premium_until(session, pair_id)
-    return SubscriptionOut(premium=until is not None, until=until,
-                           free_plans_left=await free_plans_left(session, pair_id))
+    return SubscriptionOut(premium=until is not None, until=until)
 
 
 @router.get("/subscription", response_model=SubscriptionOut)
 async def subscription(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)):
-    return await _subscription(session, ctx.pair.id)
-
-
-@router.post("/subscription/dev-activate", response_model=SubscriptionOut)
-async def dev_activate(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)):
-    """Тестовая подписка на 30 дней — только в режиме разработки, до подключения оплаты."""
-    if not get_settings().is_dev:
-        raise HTTPException(404, "Not Found")
-    sub = (await session.execute(
-        select(PairSubscription).where(PairSubscription.pair_id == ctx.pair.id)
-    )).scalar_one_or_none()
-    until = utcnow() + timedelta(days=30)
-    if sub is None:
-        session.add(PairSubscription(pair_id=ctx.pair.id, until=until, source="dev"))
-    else:
-        sub.until, sub.source = until, "dev"
-    await invalidate_pair(session, ctx, ["plans", "us"])
-    await session.commit()
     return await _subscription(session, ctx.pair.id)
 
 
@@ -97,7 +81,12 @@ class PlanOut(BaseModel):
     intro: str
     locked: bool
     premium: bool
-    free_plans_left: int
+    free_plans_left: int = Field(
+        default=LEGACY_FREE_PLAN_AVAILABLE,
+        deprecated=True,
+        description="Совместимость APK 6/7: ещё один бесплатный план всегда доступен; квоты нет.",
+    )
+    core_plans_unlimited: bool = True
     options: list[OptionOut]
     my_vote: int | None = None
     partner_vote: int | None = None
@@ -164,7 +153,6 @@ async def _plan_out(session: AsyncSession, ctx: PairContext, card_id: int) -> Pl
         card_id=card.id, text=card.text, deck_title=DECKS.get(card.deck, {}).get("title", card.deck),
         kind=kind, intro=plan["intro"], locked=locked, premium=premium,
         places_available=card.text in CARD_KINDS,
-        free_plans_left=await free_plans_left(session, ctx.pair.id),
         options=options, my_vote=mine, partner_vote=theirs,
         chosen=mine if mine is not None and mine == theirs else None,
         scheduled_at=_aware(unlock.scheduled_at) if unlock and unlock.scheduled_at else None,
@@ -216,13 +204,7 @@ async def open_plan(card_id: int, ctx: PairContext = Depends(special_pair),
                     session: AsyncSession = Depends(get_session)):
     await _matched_plan(session, ctx, card_id)
     if await _unlock(session, ctx, card_id) is None:
-        premium = await premium_until(session, ctx.pair.id) is not None
-        if premium:
-            session.add(PlanUnlock(pair_id=ctx.pair.id, card_id=card_id, free=False))
-        elif await free_plans_left(session, ctx.pair.id) > 0:
-            session.add(PlanUnlock(pair_id=ctx.pair.id, card_id=card_id, free=True))
-        else:
-            raise HTTPException(402, "Остальные планы открываются с подпиской «Вечер+»")
+        session.add(PlanUnlock(pair_id=ctx.pair.id, card_id=card_id, free=True))
         await invalidate_pair(session, ctx, ["plans", "wishes", "us"])
         await session.commit()
     return await _plan_out(session, ctx, card_id)
