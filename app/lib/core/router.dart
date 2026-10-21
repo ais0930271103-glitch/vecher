@@ -28,6 +28,8 @@ import '../features/wishes/wishes_screen.dart';
 import 'api.dart';
 import 'chat_presence.dart';
 import 'push.dart';
+import 'realtime_polling.dart';
+import 'realtime_provider.dart';
 import 'updater.dart';
 import 'theme.dart';
 
@@ -124,8 +126,11 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
     super.initState();
     // Человек вошёл — подключаем push (разрешение спросит система).
     initPush(ref.read(dioProvider));
-    // Значок непрочитанных на «Чат» — раз в 10 секунд (мгновенно — с сервером).
-    _unreadPoll = Timer.periodic(const Duration(seconds: 10), (_) => ref.invalidate(chatUnreadProvider));
+    _unreadPoll = RealtimePoll(
+      controller: ref.read(realtimeControllerProvider),
+      interval: const Duration(seconds: 10),
+      onPoll: () => ref.invalidate(chatUnreadProvider),
+    );
     // Новая версия приложения на сервере — предложим обновиться (раз за запуск).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future<void>.delayed(const Duration(seconds: 2), () {
@@ -134,7 +139,7 @@ class _HomeShellState extends ConsumerState<_HomeShell> {
     });
   }
 
-  Timer? _unreadPoll;
+  RealtimePoll? _unreadPoll;
 
   @override
   void dispose() {

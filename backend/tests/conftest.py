@@ -7,7 +7,9 @@ from pathlib import Path
 
 _test_root = Path(tempfile.mkdtemp(prefix="vecher-backend-tests-"))
 atexit.register(shutil.rmtree, _test_root, True)
-os.environ["VECHER_DATABASE_URL"] = f"sqlite+aiosqlite:///{_test_root / 'test.db'}"
+os.environ["VECHER_DATABASE_URL"] = os.environ.get(
+    "VECHER_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{_test_root / 'test.db'}"
+)
 os.environ["VECHER_ENV"] = "dev"
 os.environ["VECHER_SCHEDULER_ENABLED"] = "0"  # фоновые уведомления в тестах вызываем вручную
 os.environ["VECHER_FIREBASE_CREDENTIALS"] = "no-such-key.json"
@@ -17,7 +19,18 @@ os.environ["VECHER_JWT_SECRET"] = "test-secret-0123456789abcdef0123456789abcdef"
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
-from app.db import Base, engine  # noqa: E402
+from app import db  # noqa: E402
+from app.db import Base  # noqa: E402
+
+if os.environ["VECHER_DATABASE_URL"].startswith("postgresql"):
+    # Each pytest-asyncio test owns a loop. Do not reuse an asyncpg connection
+    # bound to the previous loop. The override must name a disposable test DB.
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    db.engine = create_async_engine(os.environ["VECHER_DATABASE_URL"], poolclass=NullPool)
+    db.SessionLocal.configure(bind=db.engine)
+engine = db.engine
 from app.main import app  # noqa: E402
 
 

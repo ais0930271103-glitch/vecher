@@ -10,6 +10,9 @@ import '../../core/api.dart';
 import '../../core/chat_presence.dart';
 import '../../core/format.dart';
 import '../../core/privacy.dart' show PinGate;
+import '../../core/realtime_polling.dart';
+import '../../core/realtime_provider.dart';
+import '../../core/session_changes.dart';
 import '../../core/theme.dart';
 import '../../core/top_banner.dart';
 import '../../core/ui.dart';
@@ -68,6 +71,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   AppLifecycleState _lifecycle = AppLifecycleState.resumed;
   bool _routeVisible = false;
   bool _refreshing = false;
+  bool _refreshAgain = false;
+  bool _markReadAgain = false;
+  int _chatGeneration = 0;
+  CancelToken? _refreshCancel;
+  CancelToken? _olderCancel;
   bool _loadingOlder = false;
   bool _pickingFile = false;
   bool _uploading = false;
@@ -84,7 +92,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   String? _error;
   Map? _attach;
   Map<String, dynamic>? _replyTo;
-  Timer? _poll;
+  RealtimePoll? _poll;
+  StreamSubscription<Set<String>>? _realtimeUpdates;
 
   @override
   void initState() {
@@ -94,6 +103,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
     PinGate.lockedListenable.addListener(_updatePresence);
+    PinGate.readyListenable.addListener(_updatePresence);
+    sessionChanges.addListener(_sessionChanged);
     _attach = widget.attach;
     if (_attach != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -105,14 +116,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
     // Poll only a visible foreground chat. Covered/background screens must not
     // mark a partner's messages read or suppress their incoming notification.
-    _poll = Timer.periodic(const Duration(seconds: 4), (_) => _refresh());
+    final realtime = ref.read(realtimeControllerProvider);
+    _realtimeUpdates = realtime.invalidations.listen((scopes) {
+      if ((scopes.contains('pair') || scopes.contains('all')) && mounted) {
+        _clearChatContext();
+      }
+      if (scopes.any({'chat', 'pair', 'all'}.contains)) {
+        unawaited(_refresh());
+      }
+    });
+    _poll = RealtimePoll(
+      controller: realtime,
+      interval: const Duration(seconds: 4),
+      allowed: () => _visible,
+      onPoll: () => unawaited(_refresh()),
+    );
   }
 
   bool get _visible =>
       _routeVisible &&
       (_route?.isCurrent ?? false) &&
       _lifecycle == AppLifecycleState.resumed &&
-      !PinGate.isLocked;
+      PinGate.isReady &&
+      !PinGate.isLocked &&
+      !sessionChanges.isChanging;
+
+  void _sessionChanged() {
+    if (sessionChanges.isChanging && mounted) {
+      _clearChatContext();
+    }
+    _updatePresence();
+  }
+
+  void _clearChatContext() {
+    _chatGeneration++;
+    _refreshCancel?.cancel();
+    _olderCancel?.cancel();
+    setState(() {
+      _byId.clear();
+      _replyTo = null;
+      _partnerReadAt = null;
+      _hasMore = false;
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -128,6 +174,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   void _updatePresence() {
     setChatScreenVisible(this, _visible);
+    if (!_visible) {
+      _refreshCancel?.cancel();
+      _olderCancel?.cancel();
+    }
     if (_visible) {
       // Remove any snackbar queued by the preceding screen before opening the
       // keyboard. All feedback produced in this chat uses the top overlay.
@@ -176,8 +226,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     chatRouteObserver.unsubscribe(this);
     WidgetsBinding.instance.removeObserver(this);
     PinGate.lockedListenable.removeListener(_updatePresence);
+    PinGate.readyListenable.removeListener(_updatePresence);
+    sessionChanges.removeListener(_sessionChanged);
+    unawaited(_realtimeUpdates?.cancel());
     setChatScreenVisible(this, false);
     _poll?.cancel();
+    _refreshCancel?.cancel();
+    _olderCancel?.cancel();
     _uploadCancel?.cancel();
     for (final token in _downloads.values) {
       token.cancel();
@@ -218,15 +273,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _refresh({bool markRead = false}) async {
-    if (!_visible || _refreshing) return;
+    if (!_visible) return;
+    if (_refreshing) {
+      _refreshAgain = true;
+      _markReadAgain |= markRead;
+      return;
+    }
+    final sessionRevision = sessionChanges.revision;
+    final chatGeneration = _chatGeneration;
+    final cancel = _refreshCancel = CancelToken();
     _refreshing = true;
+    _refreshAgain = _markReadAgain = false;
     try {
       final before = _byId.length;
       final lastPartner = _messages
           .where((m) => m['mine'] != true)
           .lastOrNull?['id'];
-      final r = await ref.read(dioProvider).get('/chat');
-      if (!mounted) return;
+      final r = await ref.read(dioProvider).get('/chat', cancelToken: cancel);
+      if (!mounted ||
+          sessionRevision != sessionChanges.revision ||
+          chatGeneration != _chatGeneration) {
+        return;
+      }
       final data = r.data as Map;
       setState(() {
         if (before == 0) _hasMore = data['has_more'] == true;
@@ -238,38 +306,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           .where((m) => m['mine'] != true)
           .lastOrNull?['id'];
       if (_visible && (markRead || newLastPartner != lastPartner)) {
-        await ref.read(dioProvider).post('/chat/read');
-        ref.invalidate(chatUnreadProvider);
+        await ref.read(dioProvider).post('/chat/read', cancelToken: cancel);
+        if (mounted &&
+            sessionRevision == sessionChanges.revision &&
+            chatGeneration == _chatGeneration) {
+          ref.invalidate(chatUnreadProvider);
+        }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted &&
+          sessionRevision == sessionChanges.revision &&
+          chatGeneration == _chatGeneration &&
+          !cancel.isCancelled) {
         setState(() {
+          if (e is DioException &&
+              {401, 403, 404}.contains(e.response?.statusCode)) {
+            _byId.clear();
+          }
           _loading = false;
           _error = errorText(e);
         });
       }
     } finally {
       _refreshing = false;
+      if (identical(_refreshCancel, cancel)) _refreshCancel = null;
+      if (mounted && _visible && _refreshAgain) {
+        final markReadAgain = _markReadAgain;
+        _refreshAgain = _markReadAgain = false;
+        unawaited(_refresh(markRead: markReadAgain));
+      }
     }
   }
 
   Future<void> _loadOlder() async {
     final first = _messages.firstOrNull;
-    if (first == null || _loadingOlder) return;
+    if (!_visible || first == null || _loadingOlder) return;
+    final sessionRevision = sessionChanges.revision;
+    final chatGeneration = _chatGeneration;
+    final cancel = _olderCancel = CancelToken();
     setState(() => _loadingOlder = true);
     try {
       final r = await ref
           .read(dioProvider)
-          .get('/chat', queryParameters: {'before': first['created_at']});
-      if (!mounted) return;
+          .get(
+            '/chat',
+            queryParameters: {'before': first['created_at']},
+            cancelToken: cancel,
+          );
+      if (!mounted ||
+          sessionRevision != sessionChanges.revision ||
+          chatGeneration != _chatGeneration) {
+        return;
+      }
       final data = r.data as Map;
       setState(() {
         _absorb(data);
         _hasMore = data['has_more'] == true;
       });
     } catch (e) {
-      if (mounted) _toast(errorText(e));
+      if (mounted &&
+          _visible &&
+          chatGeneration == _chatGeneration &&
+          !cancel.isCancelled) {
+        _toast(errorText(e));
+      }
     } finally {
+      if (identical(_olderCancel, cancel)) _olderCancel = null;
       if (mounted) setState(() => _loadingOlder = false);
     }
   }
@@ -370,6 +472,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Future<void> _send() async {
     if (_sending || _pickingFile) return;
+    final sessionRevision = sessionChanges.revision;
+    final chatGeneration = _chatGeneration;
     final text = _text.text.trim();
     if (_draft == null && text.isEmpty && _attach == null && _file == null) {
       return;
@@ -408,7 +512,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         );
         if (cancel.isCancelled) throw cancel.cancelError!;
       }
-      if (!mounted) {
+      if (!mounted || sessionRevision != sessionChanges.revision) {
         await _discardUploaded(file);
         return;
       }
@@ -418,10 +522,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       final r = await _dio.post('/chat', data: draft.toRequest());
       if (!mounted) return;
       setState(() {
-        _absorb({
-          'messages': [r.data],
-          'partner_read_at': _partnerReadAt?.toIso8601String(),
-        });
+        if (sessionRevision == sessionChanges.revision &&
+            chatGeneration == _chatGeneration) {
+          _absorb({
+            'messages': [r.data],
+            'partner_read_at': _partnerReadAt?.toIso8601String(),
+          });
+        }
         if (_draft?.id == draft.id) _completeDraft();
       });
     } catch (e) {
@@ -466,6 +573,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Future<void> _heart(Map<String, dynamic> m) async {
     if (m['mine'] == true || m['deleted'] == true) return;
+    final sessionRevision = sessionChanges.revision;
+    final chatGeneration = _chatGeneration;
     HapticFeedback.lightImpact();
     try {
       final r = await ref
@@ -474,7 +583,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             '/chat/${m['id']}/react',
             data: {'emoji': m['reaction'] == '❤️' ? null : '❤️'},
           );
-      if (mounted) {
+      if (mounted &&
+          sessionRevision == sessionChanges.revision &&
+          chatGeneration == _chatGeneration) {
         setState(
           () => _absorb({
             'messages': [r.data],
@@ -494,6 +605,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Future<void> _actions(Map<String, dynamic> m) async {
     if (m['deleted'] == true) return;
+    final sessionRevision = sessionChanges.revision;
+    final chatGeneration = _chatGeneration;
     final mine = m['mine'] == true;
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -558,7 +671,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         ),
       ),
     );
-    if (choice == null || !mounted) return;
+    if (choice == null ||
+        !mounted ||
+        sessionRevision != sessionChanges.revision ||
+        chatGeneration != _chatGeneration) {
+      return;
+    }
     final dio = ref.read(dioProvider);
     try {
       if (choice == 'reply') {
@@ -568,7 +686,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _toast('Скопировано');
       } else if (choice == 'delete') {
         final r = await dio.delete('/chat/${m['id']}');
-        if (!mounted) return;
+        if (!mounted ||
+            sessionRevision != sessionChanges.revision ||
+            chatGeneration != _chatGeneration) {
+          return;
+        }
         setState(
           () => _absorb({
             'messages': [r.data],
@@ -581,7 +703,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           '/chat/${m['id']}/react',
           data: {'emoji': m['reaction'] == e ? null : e},
         );
-        if (!mounted) return;
+        if (!mounted ||
+            sessionRevision != sessionChanges.revision ||
+            chatGeneration != _chatGeneration) {
+          return;
+        }
         setState(
           () => _absorb({
             'messages': [r.data],

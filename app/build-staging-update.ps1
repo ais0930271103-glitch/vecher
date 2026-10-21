@@ -3,8 +3,8 @@
 # Run from any directory: powershell -NoProfile -ExecutionPolicy Bypass -File .\app\build-staging-update.ps1
 [CmdletBinding()]
 param(
-    [ValidateRange(6, 2100000000)][int]$Build = 6,
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Name = '0.2.1',
+    [ValidateRange(7, 2100000000)][int]$Build = 7,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Name = '0.3.0',
     [ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedCertificateSha256 = 'bf3d541231287a7e37629088f470d82079d6b1577d0692cceeb8597779d520c1',
     [string]$AndroidSdk = '',
     [string]$FlutterPath = '',
@@ -114,7 +114,7 @@ try {
     } else { Copy-Item -LiteralPath $BuiltApk -Destination $ApkPath }
     if (-not $Notes) {
         # Read UTF-8 explicitly so Windows PowerShell 5.1 displays Russian correctly.
-        $Notes = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'release-notes-0.2.1.txt'), [Text.Encoding]::UTF8).Trim()
+        $Notes = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'release-notes-0.3.0.txt'), [Text.Encoding]::UTF8).Trim()
     }
     $Metadata = [ordered]@{version_code = $Build; version_name = $Name; notes = $Notes; required = $false}
     [IO.File]::WriteAllText($VersionPath, ($Metadata | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding $false))

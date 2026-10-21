@@ -12,6 +12,7 @@ from ..db import get_session
 from ..deps import PairContext, active_pair, prep_pair, today_date
 from ..models import Activity, Letter, QuietWish, Surprise, User, WishCard, WishSwipe, utcnow
 from ..push import local_when, notify
+from ..realtime import enqueue_invalidation, invalidate_pair
 from .wishes import ensure_cards
 
 router = APIRouter(tags=["solo"])
@@ -153,6 +154,8 @@ async def send_letter(body: LetterIn, ctx: PairContext = Depends(prep_pair),
     at = _utc(body.deliver_at) if body.deliver_at else next_morning()
     letter = Letter(pair_id=ctx.pair.id, from_id=ctx.user.id, text=text, deliver_at=at, created_at=utcnow())
     session.add(letter)
+    recipients = [ctx.user.id, ctx.partner_id] if at <= utcnow() else [ctx.user.id]
+    await enqueue_invalidation(session, recipients, ["solo", "today", "pair"], pair_id=ctx.pair.id)
     await session.commit()
     return SentLetterOut(id=letter.id, text=text, deliver_at=at, delivered=at <= utcnow(), read=False)
 
@@ -178,6 +181,7 @@ async def read_letter(letter_id: str, ctx: PairContext = Depends(active_pair),
         raise HTTPException(404, "Письмо не найдено")
     if letter.read_at is None:
         letter.read_at = utcnow()
+        await invalidate_pair(session, ctx, ["today", "solo"])
         await session.commit()
     return {"ok": True}
 
@@ -192,6 +196,7 @@ async def cancel_letter(letter_id: str, ctx: PairContext = Depends(active_pair),
     if _aware(letter.deliver_at) <= utcnow():
         raise HTTPException(409, "Письмо уже доставлено")
     await session.delete(letter)
+    await enqueue_invalidation(session, [ctx.user.id], ["solo", "pair"], pair_id=ctx.pair.id)
     await session.commit()
     return Response(status_code=204)
 
@@ -206,6 +211,7 @@ async def add_wish(body: WishIn, ctx: PairContext = Depends(active_pair),
         raise HTTPException(422, "Пустое желание")
     w = QuietWish(user_id=ctx.user.id, text=text, created_at=utcnow())
     session.add(w)
+    await enqueue_invalidation(session, [ctx.user.id], ["solo"])
     await session.commit()
     return WishOut(id=w.id, text=w.text)
 
@@ -217,6 +223,7 @@ async def delete_wish(wish_id: str, ctx: PairContext = Depends(active_pair),
     if w is None or w.user_id != ctx.user.id:
         raise HTTPException(404, "Не найдено")
     await session.delete(w)
+    await enqueue_invalidation(session, [ctx.user.id], ["solo"])
     await session.commit()
     return Response(status_code=204)
 
@@ -230,9 +237,11 @@ async def add_surprise(body: SurpriseIn, ctx: PairContext = Depends(active_pair)
     s = Surprise(pair_id=ctx.pair.id, from_id=ctx.user.id, title=body.title.strip(),
                  note=(body.note or "").strip() or None, at=at, created_at=utcnow())
     session.add(s)
-    await session.commit()
+    await session.flush()
     await notify(session, ctx.partner_id, "Вечер", f"Тебя ждёт сюрприз — {local_when(at)}",
-                 {"open": "today"}, key=f"surprise-new:{s.id}")
+                 {"open": "today"}, key=f"surprise-new:{s.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["solo", "today"])
+    await session.commit()
     return MySurpriseOut(id=s.id, title=s.title, note=s.note, at=at)
 
 
@@ -243,6 +252,7 @@ async def delete_surprise(surprise_id: str, ctx: PairContext = Depends(active_pa
     if s is None or s.from_id != ctx.user.id or s.pair_id != ctx.pair.id:
         raise HTTPException(404, "Не найдено")
     await session.delete(s)
+    await invalidate_pair(session, ctx, ["solo", "today"])
     await session.commit()
     return Response(status_code=204)
 

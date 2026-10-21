@@ -2,7 +2,7 @@
 # Отдельный проект Docker «vecher-test»: своя сеть, свои тома, порт только на 127.0.0.1.
 # krug не трогаем: другое имя проекта, другие порты, никаких общих томов и сетей.
 #
-# Запуск (из /opt/vecher-test/repo/infra/staging):  docker compose up -d --build
+# Запуск и миграции: install.sh / update.sh; realtime — ROLLOUT_REALTIME.md.
 
 name: vecher-test
 
@@ -48,6 +48,27 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s
       retries: 5
+
+  # Включается явно после prepare-realtime.py. API управления доступен только
+  # внутри этой Docker-сети на 8001; Caddy публикует лишь WebSocket на 8000.
+  centrifugo:
+    image: centrifugo/centrifugo:v6.9.7
+    profiles: [realtime]
+    command: [centrifugo, --config=/centrifugo/config.json]
+    user: "10001:10001"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - ./secrets/centrifugo.json:/centrifugo/config.json:ro
+    ports: ["127.0.0.1:8093:8000"]
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   db-data:

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import get_session
 from ..models import User, UserSettings
 from ..security import current_user
+from ..realtime import enqueue_invalidation
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -41,5 +42,6 @@ async def update_settings(body: SettingsIn, user: User = Depends(current_user),
         row.push_enabled = body.push_enabled
     if body.push_private is not None:
         row.push_private = body.push_private
+    await enqueue_invalidation(session, [user.id], ["us"])
     await session.commit()
     return _out(row)

@@ -16,6 +16,8 @@ from ..db import get_session
 from ..deps import PairContext, active_pair, prep_pair, prep_special_pair, special_pair, today_date
 from ..models import PairLevel, PlanUnlock, WishCard, WishSwipe, WishView, utcnow
 from ..push import notify
+from ..realtime import enqueue_invalidation, invalidate_pair
+from ..pair_lock import pair_lock
 from .today import mark_activity
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
@@ -230,14 +232,16 @@ async def set_level(body: LevelIn, ctx: PairContext = Depends(prep_special_pair)
         session.add(PairLevel(pair_id=ctx.pair.id, user_id=ctx.user.id, level=body.level))
     else:
         row.level = body.level
-    await session.commit()
+    await session.flush()
     mine, theirs = await _levels(session, ctx)
     effective = _effective(mine, theirs)
     if effective == "hot" and ctx.partner_id:
         # Оба готовы к «Ночи» — сообщаем обоим один раз, без подробностей на экране блокировки.
         for uid in (ctx.user.id, ctx.partner_id):
             await notify(session, uid, "Вечер", "В «Вечере» открылось кое-что новое для вас двоих",
-                         {"open": "wishes"}, key=f"night:{ctx.pair.id}:{uid}")
+                         {"open": "wishes"}, key=f"night:{ctx.pair.id}:{uid}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["wishes", "plans"])
+    await session.commit()
     return LevelOut(mine=mine, effective=effective, night_open=effective == "hot")
 
 
@@ -301,19 +305,26 @@ async def swipe(
         select(WishSwipe.choice).where(WishSwipe.pair_id == ctx.pair.id, WishSwipe.user_id == ctx.partner_id,
                                        WishSwipe.card_id == card.id)
     )).scalar_one_or_none()
-    await session.commit()
-
     kind = match_kind(body.choice, theirs) if theirs else None
     if kind and ctx.partner_id:
         # Партнёр ответил раньше — сообщаем ему о совпадении (без текста карточки).
         await notify(session, ctx.partner_id, "Вечер", "У вас новое совпадение",
-                     {"open": "matches"}, key=f"match:{ctx.pair.id}:{card.id}")
+                     {"open": "matches"}, key=f"match:{ctx.pair.id}:{card.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today", "wishes", "plans", "solo", "pair"])
+    await session.commit()
     return SwipeOut(match=_match_out(card, kind, now) if kind else None)
 
 
 @router.get("/matches", response_model=list[MatchOut])
 async def matches(ctx: PairContext = Depends(special_pair), session: AsyncSession = Depends(get_session)):
     """Взаимные желания. Открытие списка снимает пометку «новое»."""
+    # Two devices may refresh together after the same invalidation. Serialize
+    # the first WishView insert and its monotonic seen watermark across workers.
+    async with pair_lock(session, ctx.pair.id):
+        return await _view_matches(session, ctx)
+
+
+async def _view_matches(session: AsyncSession, ctx: PairContext) -> list[MatchOut]:
     found = await _matches(session, ctx)
     seen = await _seen_at(session, ctx)
     unlocks = {
@@ -329,12 +340,17 @@ async def matches(ctx: PairContext = Depends(special_pair), session: AsyncSessio
             m.scheduled_at = _aware(u.scheduled_at) if u.scheduled_at else None
         result.append(m)
 
-    view = (await session.execute(
-        select(WishView).where(WishView.pair_id == ctx.pair.id, WishView.user_id == ctx.user.id)
-    )).scalar_one_or_none()
-    if view is None:
-        session.add(WishView(pair_id=ctx.pair.id, user_id=ctx.user.id, seen_at=utcnow()))
-    else:
-        view.seen_at = utcnow()
+    # Sync the new-match badge on the author's other devices, once per newly
+    # viewed match. Repeated GETs cannot cause an invalidation/refetch loop.
+    latest = max((at for _, _, at in found), default=None)
+    if latest is not None and (seen is None or latest > seen):
+        view = (await session.execute(
+            select(WishView).where(WishView.pair_id == ctx.pair.id, WishView.user_id == ctx.user.id)
+        )).scalar_one_or_none()
+        if view is None:
+            session.add(WishView(pair_id=ctx.pair.id, user_id=ctx.user.id, seen_at=latest))
+        else:
+            view.seen_at = latest
+        await enqueue_invalidation(session, [ctx.user.id], ["wishes"], pair_id=ctx.pair.id)
     await session.commit()
     return result

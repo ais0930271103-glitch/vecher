@@ -9,8 +9,9 @@ from .config import get_settings
 from .db import create_all
 from . import attachments
 from .body_limits import CallBodyLimitMiddleware
-from .routers import app_update, auth, invite_page, calls, chat, city, places, invites, pairs, plans, push, settings as settings_router, solo, today, us, wishes
+from .routers import app_update, auth, invite_page, calls, chat, city, places, invites, pairs, plans, push, realtime, settings as settings_router, solo, today, us, wishes
 from .scheduler import run_forever
+from .outbox import run_forever as run_delivery_worker
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,18 +19,25 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_all()
-    task = asyncio.create_task(run_forever()) if get_settings().scheduler_enabled else None
-    yield
-    if task:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+    tasks = []
+    if get_settings().scheduler_enabled:
+        tasks.append(asyncio.create_task(run_forever()))
+    if get_settings().outbox_enabled:
+        tasks.append(asyncio.create_task(run_delivery_worker()))
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 settings = get_settings()
 app = FastAPI(
     title="Вечер API",
-    version="0.1.0",
+    version="0.3.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.env != "prod" else None,
     redoc_url=None,
@@ -59,6 +67,7 @@ app.include_router(calls.router)
 app.include_router(app_update.router)
 app.include_router(invite_page.router)
 app.include_router(settings_router.router)
+app.include_router(realtime.router)
 
 
 @app.get("/health", tags=["system"])

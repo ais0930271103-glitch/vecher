@@ -1,9 +1,8 @@
 """Чат пары: текст, приватные файлы, «Обсудить», ответы, реакции и прочитано.
 
-Клиент получает историю через REST polling; push сообщает о новых сообщениях.
+Клиент получает историю через REST; realtime сообщает об изменениях, push — о новых сообщениях.
 Сигналинг приватных видеозвонков находится в routers/calls.py.
 """
-import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,9 +16,9 @@ from ..models import ChatAttachment, ChatMessage, ChatRead, ChatSendKey, utcnow
 from ..attachments import AttachmentOut, _expired, attachment_out, delete_attachments
 from ..pair_lock import pair_lock
 from ..push import display_name, notify
+from ..realtime import invalidate_pair
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-log = logging.getLogger("vecher.chat")
 
 REF_KINDS = ("match", "plan", "invite", "letter")
 REACTIONS = ("❤️", "😂", "😮", "😢", "👍", "🔥")
@@ -195,35 +194,43 @@ async def send(body: MessageIn, ctx: PairContext = Depends(active_pair),
             session.add(ChatSendKey(pair_id=ctx.pair.id, from_id=ctx.user.id,
                                     client_id=body.client_message_id, message_id=m.id))
         await _mark_read(session, ctx)  # своё сообщение = всё до него прочитано
-        await session.commit()
-        out = _out(m, ctx.user.id, {reply.id: reply} if reply else {}, files, body.client_message_id)
-    # Сообщение уже сохранено — что бы ни случилось с уведомлением, отвечаем «отправлено».
-    try:
         name = await display_name(session, ctx.user.id)
-        # Не чаще одного уведомления в минуту на серию сообщений; текст сообщения в уведомление не кладём.
+        # Не чаще одного push в минуту на серию; текст сообщения остаётся в REST.
         minute = utcnow().strftime("%Y%m%d%H%M")
         await notify(session, ctx.partner_id, "Вечер", f"{name} написал(а) тебе", {"open": "chat"},
-                     key=f"chat:{ctx.pair.id}:{ctx.partner_id}:{minute}")
-    except Exception as e:  # noqa: BLE001
-        await session.rollback()
-        log.warning("Уведомление о сообщении не отправлено: %s", e)
+                     key=f"chat:{ctx.pair.id}:{ctx.partner_id}:{minute}", pair_id=ctx.pair.id)
+        await invalidate_pair(session, ctx, ["chat"])
+        await session.commit()
+        out = _out(m, ctx.user.id, {reply.id: reply} if reply else {}, files, body.client_message_id)
     return out
 
 
-async def _mark_read(session: AsyncSession, ctx: PairContext) -> None:
+async def _mark_read(session: AsyncSession, ctx: PairContext) -> bool:
+    # Advance to a known incoming message, not the clock. Repeated REST refreshes
+    # must not produce a new read receipt and another invalidation indefinitely.
+    latest = (await session.execute(select(func.max(ChatMessage.created_at)).where(
+        ChatMessage.pair_id == ctx.pair.id, ChatMessage.from_id == ctx.partner_id
+    ))).scalar_one_or_none()
+    if latest is None:
+        return False
     row = (await session.execute(
         select(ChatRead).where(ChatRead.pair_id == ctx.pair.id, ChatRead.user_id == ctx.user.id)
     )).scalar_one_or_none()
+    if row is not None and _aware(row.read_at) >= _aware(latest):
+        return False
     if row is None:
-        session.add(ChatRead(pair_id=ctx.pair.id, user_id=ctx.user.id, read_at=utcnow()))
+        session.add(ChatRead(pair_id=ctx.pair.id, user_id=ctx.user.id, read_at=latest))
     else:
-        row.read_at = utcnow()
+        row.read_at = latest
+    return True
 
 
 @router.post("/read")
 async def mark_read(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)) -> dict:
-    await _mark_read(session, ctx)
-    await session.commit()
+    async with pair_lock(session, ctx.pair.id):
+        if await _mark_read(session, ctx):
+            await invalidate_pair(session, ctx, ["chat"])
+        await session.commit()
     return {"ok": True}
 
 
@@ -243,6 +250,7 @@ async def react(message_id: str, body: ReactIn, ctx: PairContext = Depends(activ
     if body.emoji is not None and body.emoji not in REACTIONS:
         raise HTTPException(422, "Такой реакции нет")
     m.reaction = body.emoji
+    await invalidate_pair(session, ctx, ["chat"])
     await session.commit()
     return await _message_out(session, m, ctx.user.id)
 
@@ -256,5 +264,6 @@ async def delete(message_id: str, ctx: PairContext = Depends(active_pair),
             raise HTTPException(403, "Удалить можно только своё сообщение")
         m.deleted, m.text, m.ref_title = True, None, None
         await delete_attachments(session, ChatAttachment.message_id == m.id, ChatAttachment.pair_id == ctx.pair.id)
+        await invalidate_pair(session, ctx, ["chat"])
         await session.commit()
     return _out(m, ctx.user.id, {})

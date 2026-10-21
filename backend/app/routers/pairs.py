@@ -14,6 +14,7 @@ from ..models import DailyAnswer, Letter, Pair, PairMember, PairPause, ProfileFa
 from ..security import current_user
 from ..push import notify
 from ..pair_lock import pair_lock
+from ..realtime import enqueue_invalidation, invalidate_pair
 
 router = APIRouter(prefix="/pairs", tags=["pairs"])
 
@@ -96,6 +97,7 @@ async def create_invite(user: User = Depends(consented_user), session: AsyncSess
     session.add(pair)
     await session.flush()
     session.add(PairMember(pair_id=pair.id, user_id=user.id, role="initiator"))
+    await enqueue_invalidation(session, [user.id], ["all"], pair_id=pair.id)
     await session.commit()
     return await _out(session, pair, user.id)
 
@@ -114,14 +116,15 @@ async def join(body: JoinIn, user: User = Depends(consented_user), session: Asyn
         session.add(PairMember(pair_id=pair.id, user_id=user.id, role="invited"))
         pair.status = "active"
         pair.invite_code = None  # одноразовый код, захвачен под блокировкой пары
+        inviter = (await session.execute(
+            select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
+        )).scalar_one_or_none()
+        if inviter:
+            name = user.display_name or "Партнёр"
+            await notify(session, inviter, "Вечер", f"{name} с тобой — «Вечер» открыт для вас двоих",
+                         {"open": "today"}, key=f"joined:{pair.id}", pair_id=pair.id)
+        await enqueue_invalidation(session, [user.id, inviter], ["all"], pair_id=pair.id)
         await session.commit()
-    inviter = (await session.execute(
-        select(PairMember.user_id).where(PairMember.pair_id == pair.id, PairMember.user_id != user.id)
-    )).scalar_one_or_none()
-    if inviter:
-        name = user.display_name or "Партнёр"
-        await notify(session, inviter, "Вечер", f"{name} с тобой — «Вечер» открыт для вас двоих",
-                     {"open": "today"}, key=f"joined:{pair.id}")
     return await _out(session, pair, user.id)
 
 
@@ -133,17 +136,19 @@ async def pause(body: PauseIn, ctx: PairContext = Depends(active_pair),
     name = ctx.user.display_name or "Партнёр"
     if body.on and row is None:
         session.add(PairPause(pair_id=ctx.pair.id, by_user_id=ctx.user.id))
-        await session.commit()
         await notify(session, ctx.partner_id, "Вечер",
                      f"{name} поставил(а) «Вечер» на паузу. Всё сохранится — вернётесь, когда будете готовы",
-                     {"open": "today"}, force=True)
+                     {"open": "today"}, force=True, pair_id=ctx.pair.id)
+        await invalidate_pair(session, ctx, ["pair"], force=True)
+        await session.commit()
     elif not body.on and row is not None:
         if row.by_user_id != ctx.user.id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Паузу снимает тот, кто её поставил")
         await session.delete(row)
-        await session.commit()
         await notify(session, ctx.partner_id, "Вечер", f"{name} снял(а) паузу — «Вечер» снова с вами",
-                     {"open": "today"})
+                     {"open": "today"}, pair_id=ctx.pair.id)
+        await invalidate_pair(session, ctx, ["pair"], force=True)
+        await session.commit()
     return await _out(session, ctx.pair, ctx.user.id)
 
 
@@ -159,11 +164,13 @@ async def leave(user: User = Depends(current_user), session: AsyncSession = Depe
     )).scalar_one_or_none()
     async with pair_lock(session, m.pair_id, active=False):
         await erase_pair(session, m.pair_id)
+        if partner:
+            name = user.display_name or "Партнёр"
+            await notify(session, partner, "Вечер", f"{name} завершил(а) вашу пару в «Вечере»", {"open": "today"},
+                         force=True)
+        # These final events survive deletion of the old relationship.
+        await enqueue_invalidation(session, [user.id, partner], ["all"], force=True)
         await session.commit()
-    if partner:
-        name = user.display_name or "Партнёр"
-        await notify(session, partner, "Вечер", f"{name} завершил(а) вашу пару в «Вечере»", {"open": "today"},
-                     force=True)
     return {"ok": True}
 
 

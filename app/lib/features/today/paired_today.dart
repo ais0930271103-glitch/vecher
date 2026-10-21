@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
 import '../../core/format.dart';
+import '../../core/realtime_polling.dart';
+import '../../core/realtime_provider.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../us/reminders_screen.dart';
@@ -60,21 +62,24 @@ class PairedToday extends ConsumerStatefulWidget {
 }
 
 class _PairedTodayState extends ConsumerState<PairedToday> {
-  Timer? _poll;
+  RealtimePoll? _poll;
 
   @override
   void initState() {
     super.initState();
-    // Пока нет мгновенных обновлений (Centrifugo — следующий шаг), подтягиваем раз в 15 секунд.
-    _poll = Timer.periodic(const Duration(seconds: 15), (_) {
-      ref.invalidate(todayProvider);
-      ref.invalidate(upcomingProvider);
-      ref.invalidate(remindersProvider);
-      ref.invalidate(inboxProvider);
-      ref.invalidate(incomingSurprisesProvider);
-      ref.invalidate(invitesProvider);
-      ref.invalidate(chatUnreadProvider);
-    });
+    _poll = RealtimePoll(
+      controller: ref.read(realtimeControllerProvider),
+      interval: const Duration(seconds: 15),
+      onPoll: () {
+        ref.invalidate(todayProvider);
+        ref.invalidate(upcomingProvider);
+        ref.invalidate(remindersProvider);
+        ref.invalidate(inboxProvider);
+        ref.invalidate(incomingSurprisesProvider);
+        ref.invalidate(invitesProvider);
+        ref.invalidate(chatUnreadProvider);
+      },
+    );
   }
 
   @override

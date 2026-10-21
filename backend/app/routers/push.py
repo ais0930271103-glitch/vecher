@@ -1,6 +1,7 @@
 """Регистрация устройства для push-уведомлений и проверка доставки."""
 import asyncio
 import logging
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -8,13 +9,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
-from ..models import DeviceToken, User
-from ..push import get_sender
+from ..models import DeviceToken, User, utcnow
+from ..push import get_sender, notify
 from ..security import current_user
 
 router = APIRouter(prefix="/push", tags=["push"])
 log = logging.getLogger("vecher.push")
-_test_tasks: set[asyncio.Task] = set()
 
 
 class TokenIn(BaseModel):
@@ -61,8 +61,8 @@ async def test(delay: int = 5, user: User = Depends(current_user),
             select(DeviceToken.token).where(DeviceToken.user_id == user.id))).scalars().all()
         sender = get_sender()
     except Exception as e:  # noqa: BLE001
-        log.exception("PUSH TEST: сбой при подготовке")
-        raise HTTPException(500, f"Сбой на сервере при проверке: {type(e).__name__}: {e}"[:300]) from e
+        log.error("PUSH TEST: сбой при подготовке (%s)", type(e).__name__)
+        raise HTTPException(500, "Не удалось подготовить проверку уведомлений") from None
     result = {"firebase": sender.project_id if sender else None, "devices": len(tokens), "delay": delay}
     if sender is None or not tokens:
         return result
@@ -70,20 +70,13 @@ async def test(delay: int = 5, user: User = Depends(current_user),
     try:
         await asyncio.wait_for(asyncio.to_thread(sender._token), timeout=10)
     except Exception as e:  # noqa: BLE001
-        log.exception("PUSH TEST: нет доступа к Google")
-        raise HTTPException(
-            503, f"Сервер не может подключиться к Firebase (Google): {type(e).__name__}: {e}"[:300]) from e
+        log.error("PUSH TEST: нет доступа к Google (%s)", type(e).__name__)
+        raise HTTPException(503, "Сервер не может подключиться к Firebase (Google)") from None
 
-    async def later() -> None:
-        await asyncio.sleep(delay)
-        for i, t in enumerate(tokens, 1):
-            try:
-                status, text = await sender.send_raw(t, "Вечер", "Проверка уведомлений: всё работает 🌙", {"open": "today"})
-                log.info("PUSH TEST %s/%s → FCM %s %s", i, len(tokens), status, text[:300])
-            except Exception as e:  # noqa: BLE001
-                log.error("PUSH TEST %s/%s не отправлен: %s", i, len(tokens), e)
-
-    task = asyncio.create_task(later())
-    _test_tasks.add(task)
-    task.add_done_callback(_test_tasks.discard)
+    # The same persistent queue as ordinary notifications: survives API restart
+    # and rechecks current tokens/preferences at delivery time.
+    now = utcnow()
+    await notify(session, user.id, "Вечер", "Проверка уведомлений: всё работает 🌙", {"open": "today"},
+                 force=True, available_at=now + timedelta(seconds=delay), expires_at=now + timedelta(minutes=5))
+    await session.commit()
     return result

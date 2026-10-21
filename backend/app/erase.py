@@ -6,7 +6,7 @@ from .models import (
     Activity, ChatMessage, PlaceVote, ChatRead, Consent, DailyAnswer, DailyMood, Invite, DeviceToken, Letter, LoginCode, Pair, PairDate, PairLevel, PairMember, PairPause,
     PairSubscription, PartnerNote, PlanUnlock, PlanVote, ProfileFact, QuietWish, RadarSignal, Reminder, Surprise,
     User, UserCity, UserSettings, WishSwipe, WishView,
-    CallSignal, ChatAttachment, ChatSendKey, PairCall,
+    CallSignal, ChatAttachment, ChatSendKey, PairCall, DeliveryOutbox, DeliveryReceipt,
 )
 from .attachments import delete_attachments
 
@@ -21,6 +21,9 @@ USER_TABLES = ((ProfileFact, ProfileFact.user_id), (QuietWish, QuietWish.user_id
 
 async def erase_pair(session: AsyncSession, pair_id: str) -> None:
     """Пара завершена — удаляем всё общее у обоих. Анкеты «о себе» остаются у каждого."""
+    deliveries = select(DeliveryOutbox.id).where(DeliveryOutbox.pair_id == pair_id)
+    await session.execute(delete(DeliveryReceipt).where(DeliveryReceipt.outbox_id.in_(deliveries)))
+    await session.execute(delete(DeliveryOutbox).where(DeliveryOutbox.pair_id == pair_id))
     await delete_attachments(session, ChatAttachment.pair_id == pair_id)
     await session.execute(delete(ChatSendKey).where(ChatSendKey.pair_id == pair_id))
     await session.execute(delete(CallSignal).where(CallSignal.call_id.in_(select(PairCall.id).where(PairCall.pair_id == pair_id))))
@@ -39,6 +42,9 @@ async def erase_user(session: AsyncSession, user: User) -> None:
     )).scalar_one_or_none()
     if pair_id:
         await erase_pair(session, pair_id)
+    deliveries = select(DeliveryOutbox.id).where(DeliveryOutbox.user_id == user.id)
+    await session.execute(delete(DeliveryReceipt).where(DeliveryReceipt.outbox_id.in_(deliveries)))
+    await session.execute(delete(DeliveryOutbox).where(DeliveryOutbox.user_id == user.id))
     for model, column in USER_TABLES:
         await session.execute(delete(model).where(column == user.id))
     await session.execute(delete(LoginCode).where(LoginCode.email == user.email))

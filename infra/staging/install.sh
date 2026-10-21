@@ -26,7 +26,10 @@ chown -R 10001:10001 secrets && chmod 600 secrets/* 2>/dev/null || true
 [ -f secrets/firebase-key.json ] || echo "ВНИМАНИЕ: нет secrets/firebase-key.json — push работать не будет (можно положить позже)."
 
 say "2/4 Сборка и запуск (проект vecher-test)"
-docker compose up -d --build
+docker compose build api
+docker compose up -d db
+docker compose run --rm api python -m app.migrate upgrade </dev/null
+docker compose up -d --no-deps --no-build api
 
 say "3/4 Проверка API"
 for i in $(seq 1 30); do

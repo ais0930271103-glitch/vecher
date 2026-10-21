@@ -7,7 +7,6 @@ import base64
 import hashlib
 import hmac
 import json
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -24,7 +23,6 @@ from ..pair_lock import pair_lock
 from ..push import display_name, is_paused, notify
 
 router = APIRouter(prefix="/calls", tags=["calls"])
-log = logging.getLogger("vecher.calls")
 MAX_SIGNALS = 2048
 MAX_SIGNAL_BYTES = 4 * 1024 * 1024
 
@@ -164,7 +162,6 @@ async def active(ctx: PairContext = Depends(active_pair), session: AsyncSession 
 async def start(ctx: PairContext = Depends(active_pair), session: AsyncSession = Depends(get_session)):
     if not get_settings().is_dev and not _relay_configured():
         raise HTTPException(503, "Видеозвонки ещё не настроены на сервере")
-    created = False
     async with pair_lock(session, ctx.pair.id):
         call = (await session.execute(select(PairCall).where(PairCall.active_pair_id == ctx.pair.id))).scalar_one_or_none()
         now = utcnow()
@@ -187,15 +184,10 @@ async def start(ctx: PairContext = Depends(active_pair), session: AsyncSession =
         session.add(call)
         await session.flush()
         out = await _out(session, call, ctx)
+        await notify(session, ctx.partner_id, "Вечер", "Входящий видеозвонок",
+                     {"open": "call", "call_id": call.id}, key=f"call:{call.id}",
+                     pair_id=ctx.pair.id, expires_at=call.expires_at)
         await session.commit()
-        created = True
-    if created:
-        try:
-            await notify(session, ctx.partner_id, "Вечер", "Входящий видеозвонок",
-                         {"open": "call", "call_id": call.id}, key=f"call:{call.id}")
-        except Exception:
-            await session.rollback()
-            log.warning("Уведомление о звонке не доставлено; входящий доступен через API")
     return out
 
 

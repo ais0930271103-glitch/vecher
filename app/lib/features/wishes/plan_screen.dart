@@ -10,6 +10,8 @@ import '../chat/chat_screen.dart';
 import 'places_screen.dart';
 import '../../core/api.dart';
 import '../../core/format.dart';
+import '../../core/realtime_polling.dart';
+import '../../core/realtime_provider.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 
@@ -28,7 +30,7 @@ class PlanScreen extends ConsumerStatefulWidget {
 }
 
 class _PlanScreenState extends ConsumerState<PlanScreen> {
-  Timer? _poll;
+  RealtimePoll? _poll;
   bool _busy = false;
   int? _expanded;
   String? _myName, _partnerName;
@@ -46,8 +48,11 @@ class _PlanScreenState extends ConsumerState<PlanScreen> {
         });
       }
     }).catchError((_) {});
-    // Голос партнёра подтягиваем раз в 15 секунд (до Centrifugo).
-    _poll = Timer.periodic(const Duration(seconds: 15), (_) => ref.invalidate(planProvider(widget.cardId)));
+    _poll = RealtimePoll(
+      controller: ref.read(realtimeControllerProvider),
+      interval: const Duration(seconds: 15),
+      onPoll: () => ref.invalidate(planProvider(widget.cardId)),
+    );
   }
 
   @override

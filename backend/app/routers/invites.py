@@ -15,6 +15,7 @@ from ..db import get_session
 from ..deps import PairContext, active_pair
 from ..models import Invite, utcnow
 from ..push import display_name, notify
+from ..realtime import invalidate_pair
 
 router = APIRouter(prefix="/invites", tags=["invites"])
 
@@ -101,10 +102,12 @@ async def create_invite(body: InviteIn, ctx: PairContext = Depends(active_pair),
     i = Invite(pair_id=ctx.pair.id, from_id=ctx.user.id, title=body.title.strip(),
                note=(body.note or "").strip() or None, at=at)
     session.add(i)
-    await session.commit()
+    await session.flush()
     name = await display_name(session, ctx.user.id)
     await notify(session, ctx.partner_id, "Вечер", f"{name} приглашает тебя провести время вместе",
-                 {"open": "today"}, key=f"invite:{i.id}")
+                 {"open": "today"}, key=f"invite:{i.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today"])
+    await session.commit()
     return _out(i, ctx.user.id)
 
 
@@ -121,10 +124,11 @@ async def answer(invite_id: str, body: AnswerIn, ctx: PairContext = Depends(acti
     i.status, i.answered_at = body.answer, utcnow()
     if body.answer == "later":
         i.proposed_at = _aware(body.proposed_at)
-    await session.commit()
     name = await display_name(session, ctx.user.id)
     await notify(session, ctx.partner_id, "Вечер", f"{name} ответил(а) на твоё приглашение",
-                 {"open": "today"}, key=f"invite-answer:{i.id}")
+                 {"open": "today"}, key=f"invite-answer:{i.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today"])
+    await session.commit()
     return _out(i, ctx.user.id)
 
 
@@ -136,10 +140,11 @@ async def agree(invite_id: str, ctx: PairContext = Depends(active_pair),
     if i.from_id != ctx.user.id or i.status != "later" or i.proposed_at is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Здесь не о чем договариваться")
     i.status, i.at, i.answered_at = "yes", i.proposed_at, utcnow()
-    await session.commit()
     name = await display_name(session, ctx.user.id)
     await notify(session, ctx.partner_id, "Вечер", f"{name}: договорились!", {"open": "today"},
-                 key=f"invite-agree:{i.id}")
+                 key=f"invite-agree:{i.id}", pair_id=ctx.pair.id)
+    await invalidate_pair(session, ctx, ["today"])
+    await session.commit()
     return _out(i, ctx.user.id)
 
 
@@ -150,5 +155,6 @@ async def cancel(invite_id: str, ctx: PairContext = Depends(active_pair),
     if i.from_id != ctx.user.id:
         raise HTTPException(403, "Отменить может тот, кто пригласил")
     i.status = "cancelled"
+    await invalidate_pair(session, ctx, ["today"])
     await session.commit()
     return _out(i, ctx.user.id)

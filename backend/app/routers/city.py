@@ -10,6 +10,7 @@ from ..db import get_session
 from ..deps import today_date
 from ..models import User, UserCity
 from ..security import current_user
+from ..realtime import invalidate_profile
 
 router = APIRouter(tags=["city"])
 
@@ -91,5 +92,6 @@ async def set_city(body: MyCityIn, user: User = Depends(current_user),
                 raise HTTPException(422, "Дата возвращения уже прошла")
             row.travel_city, row.travel_tz = _canon(body.travel_city)
             row.travel_until = body.travel_until
+    await invalidate_profile(session, user.id, ["us", "plans", "pair"])
     await session.commit()
     return _out(row, today)

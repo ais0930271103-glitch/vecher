@@ -1,6 +1,7 @@
 """Отправка писем (код входа) через SMTP — почта на рег.ру.
 
-Без настроек SMTP (разработка, тесты) письмо не уходит: код пишется в лог сервера.
+Без настроек SMTP письмо не уходит. В dev код доступен только в HTTP-ответе
+запроса входа; вне dev отсутствие SMTP блокирует создание кода. Коды не журналируются.
 """
 import asyncio
 import logging
@@ -44,7 +45,7 @@ def _send(to: str, subject: str, text: str, html: str) -> None:
 
 
 async def send_login_code(to: str, code: str) -> bool:
-    """True — письмо отправлено; False — SMTP не настроен или ошибка (код смотреть в логе)."""
+    """True — письмо отправлено; False — SMTP не настроен или произошла ошибка."""
     if not smtp_configured():
         return False
     pretty = f"{code[:3]} {code[3:]}"
@@ -61,5 +62,6 @@ background:#121220;color:#F4EEE6;border-radius:16px">
         await asyncio.to_thread(_send, to, f"Код для входа: {pretty}", text, html)
         return True
     except Exception as e:  # noqa: BLE001
-        log.error("Не удалось отправить письмо на %s: %s", to, e)
+        # SMTP exceptions can include the recipient, message body and provider response.
+        log.error("Не удалось отправить письмо с кодом входа (%s)", type(e).__name__)
         return False

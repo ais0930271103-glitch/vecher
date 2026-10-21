@@ -1,5 +1,11 @@
 # «Вечер»: тестовый API. Подключается отдельным файлом — krug.caddy не меняется.
 api-test.xn--b1aga8b7a.online {
 	encode gzip
-	reverse_proxy 127.0.0.1:8092
+	@realtime path /connection/websocket
+	handle @realtime {
+		reverse_proxy 127.0.0.1:8093
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8092
+	}
 }

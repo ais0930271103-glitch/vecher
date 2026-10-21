@@ -11,6 +11,7 @@ from ..db import get_session
 from ..deps import PairContext, active_pair, prep_pair, prep_special_pair, special_pair, today_date
 from ..models import PairDate, PartnerNote, ProfileFact, Reminder, User, utcnow
 from ..push import display_name, notify
+from ..realtime import enqueue_invalidation, invalidate_pair
 
 router = APIRouter(tags=["us"])
 
@@ -125,6 +126,7 @@ async def set_fact(body: FactIn, ctx: PairContext = Depends(prep_special_pair),
         session.add(ProfileFact(user_id=ctx.user.id, key=body.key, value=value))
     else:
         fact.value, fact.updated_at = value, utcnow()
+    await invalidate_pair(session, ctx, ["us", "plans", "pair"])
     await session.commit()
     return {"ok": True}
 
@@ -134,6 +136,7 @@ async def set_name(body: NameIn, ctx: PairContext = Depends(active_pair),
                    session: AsyncSession = Depends(get_session)) -> dict:
     user = await session.get(User, ctx.user.id)
     user.display_name = body.name.strip() or None
+    await invalidate_pair(session, ctx, ["us", "pair", "solo", "plans"])
     await session.commit()
     return {"ok": True, "name": user.display_name}
 
@@ -146,6 +149,7 @@ async def add_note(body: NoteIn, ctx: PairContext = Depends(active_pair),
         raise HTTPException(422, "Пустая заметка")
     note = PartnerNote(pair_id=ctx.pair.id, author_id=ctx.user.id, text=text, created_at=utcnow())
     session.add(note)
+    await enqueue_invalidation(session, [ctx.user.id], ["us"], pair_id=ctx.pair.id)
     await session.commit()
     return NoteOut(id=note.id, text=note.text, created_at=_aware(note.created_at))
 
@@ -157,6 +161,7 @@ async def delete_note(note_id: str, ctx: PairContext = Depends(active_pair),
     if note is None or note.author_id != ctx.user.id or note.pair_id != ctx.pair.id:
         raise HTTPException(404, "Заметка не найдена")
     await session.delete(note)
+    await enqueue_invalidation(session, [ctx.user.id], ["us"], pair_id=ctx.pair.id)
     await session.commit()
     return Response(status_code=204)
 
@@ -235,6 +240,7 @@ async def add_date(body: DateIn, ctx: PairContext = Depends(active_pair),
             raise HTTPException(409, "Дата знакомства уже есть — удали её, чтобы указать другую")
     session.add(PairDate(pair_id=ctx.pair.id, title=body.title.strip(), day=body.day, kind=body.kind,
                          yearly=body.yearly, created_by=ctx.user.id))
+    await invalidate_pair(session, ctx, ["us", "today"])
     await session.commit()
     return await dates(ctx, session, today)
 
@@ -246,6 +252,7 @@ async def delete_date(date_id: str, ctx: PairContext = Depends(active_pair),
     if row is None or row.pair_id != ctx.pair.id:
         raise HTTPException(404, "Дата не найдена")
     await session.delete(row)
+    await invalidate_pair(session, ctx, ["us", "today"])
     await session.commit()
     return Response(status_code=204)
 
@@ -273,6 +280,11 @@ class ReminderOut(BaseModel):
 
 def _visible(r: Reminder, ctx: PairContext) -> bool:
     return r.author_id == ctx.user.id or (r.author_id == ctx.partner_id and r.target in ("partner", "both"))
+
+
+async def _invalidate_reminder(session: AsyncSession, ctx: PairContext, reminder: Reminder) -> None:
+    recipients = [ctx.user.id, ctx.partner_id] if reminder.target in ("partner", "both") else [reminder.author_id]
+    await enqueue_invalidation(session, recipients, ["us", "today"], pair_id=ctx.pair.id)
 
 
 def _out(r: Reminder, ctx: PairContext) -> ReminderOut:
@@ -307,11 +319,13 @@ async def add_reminder(body: ReminderIn, ctx: PairContext = Depends(active_pair)
     r = Reminder(pair_id=ctx.pair.id, author_id=ctx.user.id, target=body.target, text=text,
                  due_at=_utc(body.due_at), created_at=utcnow())
     session.add(r)
-    await session.commit()
+    await session.flush()
     if r.target in ("partner", "both"):
         name = await display_name(session, ctx.user.id)
         await notify(session, ctx.partner_id, "Вечер", f"{name}: новое напоминание — {text}",
-                     {"open": "reminders"}, key=f"reminder-new:{r.id}")
+                     {"open": "reminders"}, key=f"reminder-new:{r.id}", pair_id=ctx.pair.id)
+    await _invalidate_reminder(session, ctx, r)
+    await session.commit()
     return _out(r, ctx)
 
 
@@ -327,6 +341,7 @@ async def toggle_done(reminder_id: str, ctx: PairContext = Depends(active_pair),
                       session: AsyncSession = Depends(get_session)):
     r = await _get_visible(session, ctx, reminder_id)
     r.done_at = None if r.done_at else utcnow()
+    await _invalidate_reminder(session, ctx, r)
     await session.commit()
     return _out(r, ctx)
 
@@ -338,5 +353,6 @@ async def delete_reminder(reminder_id: str, ctx: PairContext = Depends(active_pa
     if r.author_id != ctx.user.id:
         raise HTTPException(403, "Удалить может только автор")
     await session.delete(r)
+    await _invalidate_reminder(session, ctx, r)
     await session.commit()
     return Response(status_code=204)

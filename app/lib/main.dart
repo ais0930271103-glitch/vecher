@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/privacy.dart';
 import 'core/push.dart';
+import 'core/realtime_bridge.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 
@@ -41,7 +42,9 @@ class VecherApp extends StatelessWidget {
       routerConfig: router,
       scaffoldMessengerKey: scaffoldMessengerKey,
       // Код-пароль закрывает всё приложение, когда включён.
-      builder: (context, child) => PinGate(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => PinGate(
+        child: RealtimeBridge(child: child ?? const SizedBox.shrink()),
+      ),
       // Русский интерфейс системных элементов: календарь, выбор времени, меню копирования.
       locale: const Locale('ru'),
       supportedLocales: const [Locale('ru')],
