@@ -23,6 +23,7 @@ import '../features/welcome/splash_screen.dart';
 import '../features/welcome/welcome_screen.dart';
 import '../features/wishes/matches_screen.dart';
 import '../features/wishes/plan_screen.dart';
+import '../features/wishes/evening_screen.dart';
 import '../features/wishes/swipe_screen.dart';
 import '../features/wishes/wishes_screen.dart';
 import 'api.dart';
@@ -49,6 +50,7 @@ final router = GoRouter(
     GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
     GoRoute(path: '/call', builder: (_, __) => const CallScreen()),
     GoRoute(path: '/call/:id', builder: (_, state) => CallScreen(callId: state.pathParameters['id']!)),
+    GoRoute(path: '/evenings/:id', builder: (_, state) => EveningScreen(eveningId: state.pathParameters['id']!)),
     // Ссылка-приглашение: запоминаем код и идём обычным путём (вход → согласие → имя → «Сегодня»).
     GoRoute(path: '/i/:code', builder: (_, state) => _InviteLink(code: state.pathParameters['code']!)),
     GoRoute(
@@ -101,6 +103,7 @@ final router = GoRouter(
               GoRoute(path: 'me', parentNavigatorKey: _rootKey, builder: (_, __) => const AboutMeScreen()),
               GoRoute(path: 'dates', parentNavigatorKey: _rootKey, builder: (_, __) => const DatesScreen()),
               GoRoute(path: 'reminders', parentNavigatorKey: _rootKey, builder: (_, __) => const RemindersScreen()),
+              GoRoute(path: 'evenings', parentNavigatorKey: _rootKey, builder: (_, __) => const EveningHistoryScreen()),
               GoRoute(path: 'settings', parentNavigatorKey: _rootKey, builder: (_, __) => const SettingsScreen()),
             ],
           ),

@@ -6,6 +6,7 @@ import '../../core/api.dart';
 import '../../core/push.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../wishes/evenings.dart' show eveningHistoryProvider;
 
 // ---------- данные раздела «Мы» ----------
 
@@ -28,6 +29,7 @@ void invalidateUs(WidgetRef ref) {
   ref.invalidate(personProvider);
   ref.invalidate(datesProvider);
   ref.invalidate(remindersProvider);
+  ref.invalidate(eveningHistoryProvider);
 }
 
 /// Вкладка «Мы».
@@ -77,6 +79,12 @@ class UsScreen extends ConsumerWidget {
               return ListView(padding: const EdgeInsets.all(20), children: [
                 _TogetherCard(days: together, onAdd: () => _go(context, ref, '/us/dates')),
                 const SizedBox(height: 16),
+                _Tile(
+                  icon: Icons.nights_stay_outlined,
+                  title: 'Наши вечера',
+                  subtitle: 'Ваши совместные моменты и сохранённый прогресс',
+                  onTap: () => _go(context, ref, '/us/evenings'),
+                ),
                 _Tile(
                   icon: Icons.favorite_outline,
                   title: 'Мой человек${p['partner_name'] == null ? '' : ': ${p['partner_name']}'}',

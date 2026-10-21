@@ -13,6 +13,8 @@ import '../../core/ui.dart';
 import '../us/reminders_screen.dart';
 import '../us/us_screen.dart';
 import '../wishes/wishes_screen.dart' show decksProvider;
+import '../wishes/evening_screen.dart' show CurrentEveningCard;
+import '../wishes/evenings.dart' show currentEveningProvider;
 import 'invites.dart';
 import '../chat/chat_screen.dart';
 
@@ -73,6 +75,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
       onPoll: () {
         ref.invalidate(todayProvider);
         ref.invalidate(upcomingProvider);
+        ref.invalidate(currentEveningProvider);
         ref.invalidate(remindersProvider);
         ref.invalidate(inboxProvider);
         ref.invalidate(incomingSurprisesProvider);
@@ -114,6 +117,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
           ),
         ]),
         const SizedBox(height: 16),
+        const CurrentEveningCard(),
         if (t['partner_mood'] != null)
           _PartnerMood(mood: Map<String, dynamic>.from(t['partner_mood'] as Map), partnerName: widget.partnerName),
         InvitesSection(partnerName: widget.partnerName),

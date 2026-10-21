@@ -6,7 +6,7 @@ from .models import (
     Activity, ChatMessage, PlaceVote, ChatRead, Consent, DailyAnswer, DailyMood, Invite, DeviceToken, Letter, LoginCode, Pair, PairDate, PairLevel, PairMember, PairPause,
     PairSubscription, PartnerNote, PlanUnlock, PlanVote, ProfileFact, QuietWish, RadarSignal, Reminder, Surprise,
     User, UserCity, UserSettings, WishSwipe, WishView,
-    CallSignal, ChatAttachment, ChatSendKey, PairCall, DeliveryOutbox, DeliveryReceipt,
+    CallSignal, ChatAttachment, ChatSendKey, PairCall, DeliveryOutbox, DeliveryReceipt, Evening, EveningFeedback,
 )
 from .attachments import delete_attachments
 
@@ -24,6 +24,9 @@ async def erase_pair(session: AsyncSession, pair_id: str) -> None:
     deliveries = select(DeliveryOutbox.id).where(DeliveryOutbox.pair_id == pair_id)
     await session.execute(delete(DeliveryReceipt).where(DeliveryReceipt.outbox_id.in_(deliveries)))
     await session.execute(delete(DeliveryOutbox).where(DeliveryOutbox.pair_id == pair_id))
+    evenings = select(Evening.id).where(Evening.pair_id == pair_id)
+    await session.execute(delete(EveningFeedback).where(EveningFeedback.evening_id.in_(evenings)))
+    await session.execute(delete(Evening).where(Evening.pair_id == pair_id))
     await delete_attachments(session, ChatAttachment.pair_id == pair_id)
     await session.execute(delete(ChatSendKey).where(ChatSendKey.pair_id == pair_id))
     await session.execute(delete(CallSignal).where(CallSignal.call_id.in_(select(PairCall.id).where(PairCall.pair_id == pair_id))))

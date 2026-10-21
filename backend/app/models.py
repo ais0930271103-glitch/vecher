@@ -192,6 +192,42 @@ class PlanVote(Base):
     option: Mapped[int] = mapped_column(Integer)
 
 
+class Evening(Base):
+    """Одно прохождение плана; повтор не переписывает прошлый вечер."""
+    __tablename__ = "evenings"
+    __table_args__ = (
+        UniqueConstraint("pair_id", "client_id", name="uq_evenings_pair_client"),
+        Index("ix_evenings_history", "pair_id", "started_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"))
+    # NULL after completion/cancellation; protects concurrent starts across API workers.
+    active_pair_id: Mapped[str | None] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), unique=True)
+    client_id: Mapped[str] = mapped_column(String(36))
+    card_id: Mapped[int] = mapped_column(ForeignKey("wish_cards.id", ondelete="CASCADE"))
+    started_by: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    option_index: Mapped[int] = mapped_column(Integer)
+    mode: Mapped[str] = mapped_column(String(12))  # together | apart, for this occurrence only
+    status: Mapped[str] = mapped_column(String(12), default="active")
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    snapshot: Mapped[str] = mapped_column(Encrypted())
+    progress: Mapped[str] = mapped_column(Encrypted())
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EveningFeedback(Base):
+    """Необязательная личная оценка; партнёр не получает её через API."""
+    __tablename__ = "evening_feedback"
+
+    evening_id: Mapped[str] = mapped_column(ForeignKey("evenings.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    data: Mapped[str] = mapped_column(Encrypted())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 # ---------- Этап 4: «Мой человек» — памятка, даты, напоминания ----------
 
 class ProfileFact(Base):
