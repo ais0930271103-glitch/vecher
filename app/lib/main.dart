@@ -2,32 +2,48 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/privacy.dart';
+import 'core/network_status.dart';
 import 'core/push.dart';
 import 'core/realtime_bridge.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 
 void main() {
-  runZonedGuarded(() {
-    WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(
+    () {
+      WidgetsFlutterBinding.ensureInitialized();
+      LicenseRegistry.addLicense(() async* {
+        for (final family in ['Manrope', 'Comfortaa']) {
+          final license = await rootBundle.loadString(
+            'assets/fonts/OFL-$family.txt',
+          );
+          yield LicenseEntryWithLineBreaks([family], license);
+        }
+      });
 
-    // Ошибки отрисовки пишем в консоль `flutter run` целиком, а не только в DevTools.
-    FlutterError.onError = (details) {
-      FlutterError.presentError(details);
-      debugPrint('VECHER UI ERROR: ${details.exceptionAsString()}\n${details.stack}');
-    };
+      // Ошибки отрисовки пишем в консоль `flutter run` целиком, а не только в DevTools.
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        debugPrint(
+          'VECHER UI ERROR: ${details.exceptionAsString()}\n${details.stack}',
+        );
+      };
 
-    // Вместо белого/серого экрана показываем понятную плашку с текстом ошибки.
-    ErrorWidget.builder = (details) => _ErrorPanel(message: details.exceptionAsString());
+      // Вместо белого/серого экрана показываем понятную плашку с текстом ошибки.
+      ErrorWidget.builder = (details) =>
+          _ErrorPanel(message: details.exceptionAsString());
 
-    runApp(const ProviderScope(child: VecherApp()));
-  }, (error, stack) {
-    debugPrint('VECHER ERROR: $error\n$stack');
-  });
+      runApp(const ProviderScope(child: VecherApp()));
+    },
+    (error, stack) {
+      debugPrint('VECHER ERROR: $error\n$stack');
+    },
+  );
 }
 
 class VecherApp extends StatelessWidget {
@@ -43,7 +59,9 @@ class VecherApp extends StatelessWidget {
       scaffoldMessengerKey: scaffoldMessengerKey,
       // Код-пароль закрывает всё приложение, когда включён.
       builder: (context, child) => PinGate(
-        child: RealtimeBridge(child: child ?? const SizedBox.shrink()),
+        child: NetworkStatus(
+          child: RealtimeBridge(child: child ?? const SizedBox.shrink()),
+        ),
       ),
       // Русский интерфейс системных элементов: календарь, выбор времени, меню копирования.
       locale: const Locale('ru'),
@@ -70,8 +88,14 @@ class _ErrorPanel extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         alignment: Alignment.topLeft,
         child: Text(
-          kReleaseMode ? 'Что-то пошло не так. Потяни вниз, чтобы обновить.' : 'Ошибка экрана:\n$message',
-          style: const TextStyle(color: Color(0xFFF5A894), fontSize: 14, decoration: TextDecoration.none),
+          kReleaseMode
+              ? 'Что-то пошло не так. Потяни вниз, чтобы обновить.'
+              : 'Ошибка экрана:\n$message',
+          style: const TextStyle(
+            color: Color(0xFFF5A894),
+            fontSize: 14,
+            decoration: TextDecoration.none,
+          ),
         ),
       ),
     );

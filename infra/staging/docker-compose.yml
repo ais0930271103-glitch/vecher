@@ -34,6 +34,7 @@ services:
       VECHER_FIREBASE_CREDENTIALS: /run/vecher/firebase-key.json
       VECHER_DOWNLOADS_DIR: /srv/downloads
       VECHER_UPLOADS_DIR: /srv/uploads
+      VECHER_CONTENT_CATALOGUE: /srv/public-content/publications.json
       # Ссылки-приглашения ведут на страницу этого сервера: https://api-test.вечер.online/i/КОД
       VECHER_PUBLIC_URL: https://api-test.xn--b1aga8b7a.online
     volumes:
@@ -42,6 +43,14 @@ services:
       - /opt/vecher-test/downloads:/srv/downloads
       # Приватные вложения: зашифрованные файлы, доступны только через API с авторизацией.
       - /opt/vecher-test/uploads:/srv/uploads
+      # Public editorial snapshots are replaced atomically by the operator.
+      # Mount the directory (not one inode), read-only for the API.
+      - type: bind
+        source: /opt/vecher-test/content
+        target: /srv/public-content
+        read_only: true
+        bind:
+          create_host_path: false
     ports: ["127.0.0.1:${API_PORT:-8092}:8000"]
     mem_limit: 320m
     healthcheck:

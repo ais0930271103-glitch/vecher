@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
@@ -13,6 +13,7 @@ import 'package:vecher_app/core/api.dart';
 import 'package:vecher_app/core/chat_presence.dart';
 import 'package:vecher_app/core/privacy.dart';
 import 'package:vecher_app/core/realtime_provider.dart';
+import 'package:vecher_app/core/session_changes.dart';
 import 'package:vecher_app/core/top_banner.dart';
 import 'package:vecher_app/features/chat/chat_screen.dart';
 import 'package:vecher_app/features/today/today_screen.dart' show pairProvider;
@@ -24,6 +25,415 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({'vecher_chat_hint_seen': '1'});
     PinGate.unlock();
   });
+  tearDown(() {
+    if (sessionChanges.isChanging) {
+      sessionChanges.finish(sessionChanges.revision);
+    }
+  });
+
+  for (final publication in [true, false]) {
+    final attachment = publication
+        ? {'draft_text': 'Практический план\n\nПопробуем вечером?'}
+        : {'kind': 'video', 'id': 'saved-video', 'title': 'Наше видео'};
+    final kind = publication ? 'publication text' : 'legacy video reference';
+
+    testWidgets('$kind and user edits survive all/resume with the same pair', (
+      tester,
+    ) async {
+      final fake = FakeRealtime();
+      final adapter = _ChatAdapter();
+      addTearDown(fake.controller.dispose);
+      await _mountChat(
+        tester,
+        adapter,
+        realtime: fake,
+        attach: attachment,
+        usePairApi: true,
+      );
+      await _connect(tester, fake);
+      await tester.enterText(find.byType(TextField), 'Мой изменённый черновик');
+      final pairLoads = adapter.pairLoads;
+      fake.transport.publish(101, ['all']);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expect(adapter.pairLoads, greaterThan(pairLoads));
+      expect(_draftText(tester), 'Мой изменённый черновик');
+      if (!publication) expect(find.text('Наше видео'), findsOneWidget);
+
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await tester.pump(const Duration(seconds: 2));
+      for (final state in [
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      // Reconnected realtime emits a full resync after returning from another
+      // network/VPN. Exercise the real ChatScreen subscription, not a draft stub.
+      fake.transport.publish(102, ['all']);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+      expect(_draftText(tester), 'Мой изменённый черновик');
+      if (!publication) expect(find.text('Наше видео'), findsOneWidget);
+      expect(adapter.posts, isEmpty);
+      await _unmountChat(tester);
+    });
+
+    for (final removed in [false, true]) {
+      testWidgets(
+        '$kind clears only after REST confirms ${removed ? 'pair removal' : 'a different pair_id'}',
+        (tester) async {
+          final fake = FakeRealtime();
+          final adapter = _ChatAdapter();
+          addTearDown(fake.controller.dispose);
+          await _mountChat(
+            tester,
+            adapter,
+            realtime: fake,
+            attach: attachment,
+            usePairApi: true,
+          );
+          await _connect(tester, fake);
+          await tester.enterText(
+            find.byType(TextField),
+            'Черновик прежней пары',
+          );
+          final delayed = adapter.delayedPair = Completer<ResponseBody>();
+          fake.transport.publish(111, ['pair']);
+          await tester.pump(const Duration(milliseconds: 200));
+          expect(adapter.delayedPair, isNull);
+          expect(_draftText(tester), 'Черновик прежней пары');
+          adapter.pair = removed
+              ? null
+              : {
+                  ...adapter.pair!,
+                  'pair_id': 'pair-two',
+                  'partner_id': 'partner-two',
+                };
+          delayed.complete(adapter._json(adapter.pair));
+          await tester.pumpAndSettle();
+          expect(_draftText(tester), isEmpty);
+          if (!publication) expect(find.text('Наше видео'), findsNothing);
+          expect(adapter.posts, isEmpty);
+          await _unmountChat(tester);
+        },
+      );
+    }
+
+    testWidgets('$kind clears immediately on an account session change', (
+      tester,
+    ) async {
+      final adapter = _ChatAdapter();
+      await _mountChat(tester, adapter, attach: attachment, usePairApi: true);
+      await tester.enterText(
+        find.byType(TextField),
+        'Личный черновик аккаунта',
+      );
+      final revision = sessionChanges.begin();
+      await tester.pump();
+      expect(_draftText(tester), isEmpty);
+      if (!publication) expect(find.text('Наше видео'), findsNothing);
+      sessionChanges.finish(revision);
+      await tester.pumpAndSettle();
+      expect(adapter.posts, isEmpty);
+      await _unmountChat(tester);
+    });
+  }
+
+  testWidgets(
+    'pair refresh with the same pair_id preserves the publication draft',
+    (tester) async {
+      final fake = FakeRealtime();
+      final adapter = _ChatAdapter();
+      addTearDown(fake.controller.dispose);
+      await _mountChat(
+        tester,
+        adapter,
+        realtime: fake,
+        usePairApi: true,
+        attach: {'draft_text': 'Название публикации\n\nОписание'},
+      );
+      await _connect(tester, fake);
+      await tester.enterText(find.byType(TextField), 'Моё дополнение');
+      final delayed = adapter.delayedPair = Completer<ResponseBody>();
+      fake.transport.publish(121, ['pair']);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(_draftText(tester), 'Моё дополнение');
+      delayed.complete(
+        adapter._json({
+          ...adapter.pair!,
+          'paused': true,
+          'partner_name': 'Новое имя',
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(_draftText(tester), 'Моё дополнение');
+      expect(adapter.posts, isEmpty);
+      await _unmountChat(tester);
+    },
+  );
+
+  testWidgets(
+    'pending and failed pair checks preserve edits and never send automatically',
+    (tester) async {
+      final fake = FakeRealtime();
+      final adapter = _ChatAdapter();
+      addTearDown(fake.controller.dispose);
+      await _mountChat(
+        tester,
+        adapter,
+        realtime: fake,
+        attach: {'draft_text': 'Публикация для нашей пары'},
+      );
+      await _connect(tester, fake);
+      final delayed = adapter.delayedPair = Completer<ResponseBody>();
+      fake.transport.publish(130, ['all']);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.enterText(find.byType(TextField), 'Дополненный черновик');
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pump();
+      expect(adapter.posts, isEmpty);
+      delayed.completeError(
+        DioException(
+          requestOptions: RequestOptions(path: '/pairs/me'),
+          type: DioExceptionType.receiveTimeout,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Не удалось проверить пару. Черновик сохранён.'),
+        findsOneWidget,
+      );
+      expect(_draftText(tester), 'Дополненный черновик');
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).readOnly,
+        isFalse,
+      );
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pump();
+      expect(adapter.posts, isEmpty);
+      await tester.tap(find.text('Проверить'));
+      await tester.pumpAndSettle();
+      expect(adapter.posts, isEmpty);
+      expect(_draftText(tester), 'Дополненный черновик');
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pumpAndSettle();
+      expect(adapter.posts.single['expected_pair_id'], 'pair-one');
+      expect(adapter.posts.single['text'], 'Дополненный черновик');
+      await _unmountChat(tester);
+    },
+  );
+
+  testWidgets('resume rechecks the pair before Send without a realtime event', (
+    tester,
+  ) async {
+    final adapter = _ChatAdapter();
+    await _mountChat(
+      tester,
+      adapter,
+      attach: {'draft_text': 'После смены сети'},
+    );
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pump();
+    final delayed = adapter.delayedPair = Completer<ResponseBody>();
+    for (final state in [
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+    expect(adapter.delayedPair, isNull);
+    await tester.tap(find.byTooltip('Отправить'));
+    await tester.pump();
+    expect(adapter.posts, isEmpty);
+    delayed.complete(adapter._json(adapter.pair));
+    await tester.pumpAndSettle();
+    expect(_draftText(tester), 'После смены сети');
+    expect(adapter.posts, isEmpty);
+    await _unmountChat(tester);
+  });
+
+  testWidgets(
+    'late pair response from a previous account cannot authorize its draft',
+    (tester) async {
+      final fake = FakeRealtime();
+      final adapter = _ChatAdapter();
+      addTearDown(fake.controller.dispose);
+      await _mountChat(
+        tester,
+        adapter,
+        realtime: fake,
+        attach: {'draft_text': 'Старый аккаунт'},
+      );
+      await _connect(tester, fake);
+      final oldPair = adapter._json(adapter.pair);
+      final delayed = adapter.delayedPair = Completer<ResponseBody>();
+      fake.transport.publish(131, ['all']);
+      await tester.pump(const Duration(milliseconds: 200));
+      final revision = sessionChanges.begin();
+      adapter.pair = {...adapter.pair!, 'pair_id': 'pair-two'};
+      sessionChanges.finish(revision);
+      await tester.pumpAndSettle();
+      expect(_draftText(tester), isEmpty);
+      delayed.complete(oldPair);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Новый аккаунт');
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pumpAndSettle();
+      expect(adapter.posts.single['expected_pair_id'], 'pair-two');
+      expect(adapter.posts.single['text'], 'Новый аккаунт');
+      await _unmountChat(tester);
+    },
+  );
+
+  testWidgets(
+    'server pair_changed blocks retries until REST confirms the new context',
+    (tester) async {
+      final adapter = _ChatAdapter()..rejectNextPairPost = true;
+      await _mountChat(tester, adapter, attach: {'draft_text': 'Прежней паре'});
+      final delayed = adapter.delayedPair = Completer<ResponseBody>();
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pumpAndSettle();
+      expect(adapter.posts.single['expected_pair_id'], 'pair-one');
+      expect(adapter.messages, isEmpty);
+      expect(_draftText(tester), 'Прежней паре');
+      expect(adapter.delayedPair, isNull);
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pump();
+      expect(adapter.posts, hasLength(1));
+      adapter.pair = {...adapter.pair!, 'pair_id': 'pair-two'};
+      delayed.complete(adapter._json(adapter.pair));
+      await tester.pumpAndSettle();
+      expect(_draftText(tester), isEmpty);
+      await tester.enterText(find.byType(TextField), 'Новой паре');
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pumpAndSettle();
+      expect(adapter.messages.single['expected_pair_id'], 'pair-two');
+      expect(adapter.messages.single['text'], 'Новой паре');
+      await _unmountChat(tester);
+    },
+  );
+
+  testWidgets(
+    'late native file selection is discarded after a confirmed pair change',
+    (tester) async {
+      final fake = FakeRealtime();
+      final adapter = _ChatAdapter();
+      final picked = Completer<List<Map<String, Object>>>();
+      _mockFilePicker(tester, () => picked.future);
+      addTearDown(fake.controller.dispose);
+      await _mountChat(tester, adapter, realtime: fake);
+      await _connect(tester, fake);
+      await tester.tap(find.byTooltip('Прикрепить файл до 25 МБ'));
+      await tester.pump();
+      adapter.pair = {...adapter.pair!, 'pair_id': 'pair-two'};
+      fake.transport.publish(132, ['pair']);
+      await tester.pump(const Duration(milliseconds: 200));
+      picked.complete(_pickedFile());
+      await tester.pumpAndSettle();
+      expect(find.text('Личный файл.txt'), findsNothing);
+      expect(adapter.uploads, 0);
+      expect(adapter.posts, isEmpty);
+      await _unmountChat(tester);
+    },
+  );
+
+  testWidgets(
+    'completed upload waits locally while pair validation fails then needs explicit Send',
+    (tester) async {
+      final fake = FakeRealtime();
+      final adapter = _ChatAdapter();
+      _mockFilePicker(tester, () async => _pickedFile());
+      addTearDown(fake.controller.dispose);
+      await _mountChat(tester, adapter, realtime: fake);
+      await _connect(tester, fake);
+      await tester.tap(find.byTooltip('Прикрепить файл до 25 МБ'));
+      await tester.pumpAndSettle();
+      final upload = adapter.delayedUpload = Completer<ResponseBody>();
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pump();
+      final pair = adapter.delayedPair = Completer<ResponseBody>();
+      fake.transport.publish(133, ['all']);
+      await tester.pump(const Duration(milliseconds: 200));
+      upload.complete(adapter._json(_uploadedFile));
+      await tester.pumpAndSettle();
+      expect(adapter.posts, isEmpty);
+      expect(find.text('Личный файл.txt'), findsOneWidget);
+      pair.completeError(
+        DioException(
+          requestOptions: RequestOptions(path: '/pairs/me'),
+          type: DioExceptionType.receiveTimeout,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pump();
+      expect(adapter.posts, isEmpty);
+      await tester.tap(find.text('Проверить'));
+      await tester.pumpAndSettle();
+      expect(adapter.posts, isEmpty);
+      await tester.tap(find.byTooltip('Отправить'));
+      await tester.pumpAndSettle();
+      expect(adapter.uploads, 1);
+      expect(adapter.posts.single['attachment_ids'], ['private-upload-one']);
+      expect(adapter.posts.single['expected_pair_id'], 'pair-one');
+      await _unmountChat(tester);
+    },
+  );
+
+  for (final accountChange in [false, true]) {
+    testWidgets(
+      'late upload cannot enter a new ${accountChange ? 'account' : 'pair'} composer',
+      (tester) async {
+        final fake = FakeRealtime();
+        final adapter = _ChatAdapter();
+        _mockFilePicker(tester, () async => _pickedFile());
+        addTearDown(fake.controller.dispose);
+        await _mountChat(tester, adapter, realtime: fake);
+        await _connect(tester, fake);
+        await tester.tap(find.byTooltip('Прикрепить файл до 25 МБ'));
+        await tester.pumpAndSettle();
+        final upload = adapter.delayedUpload = Completer<ResponseBody>();
+        await tester.tap(find.byTooltip('Отправить'));
+        await tester.pump();
+        adapter.pair = {...adapter.pair!, 'pair_id': 'pair-two'};
+        if (accountChange) {
+          final revision = sessionChanges.begin();
+          sessionChanges.finish(revision);
+        } else {
+          fake.transport.publish(134, ['pair']);
+        }
+        await tester.pump(const Duration(milliseconds: 200));
+        upload.complete(adapter._json(_uploadedFile));
+        await tester.pumpAndSettle();
+        expect(adapter.posts, isEmpty);
+        expect(find.text('Личный файл.txt'), findsNothing);
+        expect(adapter.deletedUploads, isEmpty);
+        await tester.enterText(find.byType(TextField), 'Новый контекст');
+        await tester.tap(find.byTooltip('Отправить'));
+        await tester.pumpAndSettle();
+        expect(adapter.posts.single['expected_pair_id'], 'pair-two');
+        expect(adapter.posts.single.containsKey('attachment_ids'), isFalse);
+        await _unmountChat(tester);
+      },
+    );
+  }
 
   testWidgets(
     'covered or background chat does not suppress push or mark read',
@@ -337,6 +747,8 @@ Future<void> _mountChat(
   GlobalKey<NavigatorState>? navigator,
   FakeRealtime? realtime,
   bool settle = true,
+  Map? attach,
+  bool usePairApi = true,
 }) async {
   final dio = Dio(BaseOptions(baseUrl: 'https://api.example.invalid'))
     ..httpClientAdapter = adapter;
@@ -345,7 +757,7 @@ Future<void> _mountChat(
     ProviderScope(
       overrides: [
         dioProvider.overrideWithValue(dio),
-        pairProvider.overrideWith((_) async => null),
+        if (!usePairApi) pairProvider.overrideWith((_) async => null),
         if (realtime != null)
           realtimeControllerProvider.overrideWithValue(realtime.controller),
       ],
@@ -353,17 +765,61 @@ Future<void> _mountChat(
         theme: ThemeData.dark(),
         navigatorKey: navigator,
         navigatorObservers: [chatRouteObserver],
-        home: const PinGate(child: ChatScreen()),
+        home: PinGate(child: ChatScreen(attach: attach)),
       ),
     ),
   );
   if (settle) await tester.pumpAndSettle();
 }
 
+String _draftText(WidgetTester tester) =>
+    tester.widget<TextField>(find.byType(TextField)).controller!.text;
+
+Future<void> _connect(WidgetTester tester, FakeRealtime fake) async {
+  fake.controller.activate('account');
+  await tester.pump();
+  fake.transport.subscribed();
+  await tester.pump(const Duration(milliseconds: 200));
+  await tester.pumpAndSettle();
+}
+
 Future<void> _unmountChat(WidgetTester tester) async {
   hideTopBanner();
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pump();
+}
+
+const _uploadedFile = {
+  'id': 'private-upload-one',
+  'name': 'Личный файл.txt',
+  'mime': 'text/plain',
+  'size': 3,
+};
+
+List<Map<String, Object>> _pickedFile() => [
+  {
+    'path': '/unused-test-file.txt',
+    'name': 'Личный файл.txt',
+    'size': 3,
+    'bytes': Uint8List.fromList([1, 2, 3]),
+  },
+];
+
+void _mockFilePicker(
+  WidgetTester tester,
+  Future<List<Map<String, Object>>> Function() pick,
+) {
+  const channel = MethodChannel('miguelruivo.flutter.plugins.filepicker');
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    channel,
+    (_) => pick(),
+  );
+  addTearDown(() {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      null,
+    );
+  });
 }
 
 class _DelayedPinStorage extends TestFlutterSecureStoragePlatform {
@@ -388,9 +844,22 @@ class _ChatAdapter implements HttpClientAdapter {
   final List<Map<String, dynamic>> messages = [];
   int reads = 0;
   int loads = 0;
+  int pairLoads = 0;
+  int uploads = 0;
+  final List<String> deletedUploads = [];
+  bool rejectNextPairPost = false;
+  Map<String, dynamic>? pair = {
+    'pair_id': 'pair-one',
+    'partner_id': 'partner-one',
+    'status': 'active',
+    'partner_name': 'Саша',
+    'paused': false,
+  };
   bool hasMore = false;
   Completer<ResponseBody>? delayedLoad;
   Completer<ResponseBody>? delayedPost;
+  Completer<ResponseBody>? delayedPair;
+  Completer<ResponseBody>? delayedUpload;
 
   @override
   Future<ResponseBody> fetch(
@@ -399,6 +868,12 @@ class _ChatAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     if (requestStream != null) await requestStream.drain<void>();
+    if (options.path == '/pairs/me' && options.method == 'GET') {
+      pairLoads++;
+      final delayed = delayedPair;
+      delayedPair = null;
+      return delayed == null ? _json(pair) : delayed.future;
+    }
     if (options.path == '/chat' && options.method == 'GET') {
       loads++;
       final delayed = delayedLoad;
@@ -414,9 +889,24 @@ class _ChatAdapter implements HttpClientAdapter {
       reads++;
       return _json({'ok': true});
     }
+    if (options.path == '/chat/attachments' && options.method == 'POST') {
+      uploads++;
+      final delayed = delayedUpload;
+      delayedUpload = null;
+      return delayed == null ? _json(_uploadedFile) : delayed.future;
+    }
+    if (options.path.startsWith('/chat/attachments/') &&
+        options.method == 'DELETE') {
+      deletedUploads.add(options.path);
+      return _json({'ok': true});
+    }
     if (options.path == '/chat' && options.method == 'POST') {
       final body = Map<String, dynamic>.from(options.data as Map);
       posts.add(body);
+      if (rejectNextPairPost) {
+        rejectNextPairPost = false;
+        return _json({'detail': 'pair_changed'}, statusCode: 409);
+      }
       final message = {
         'id': 'message-${body['client_message_id']}',
         'mine': true,
@@ -441,13 +931,14 @@ class _ChatAdapter implements HttpClientAdapter {
     throw StateError('Unexpected request ${options.method} ${options.path}');
   }
 
-  ResponseBody _json(Object data) => ResponseBody.fromString(
-    jsonEncode(data),
-    200,
-    headers: {
-      Headers.contentTypeHeader: [Headers.jsonContentType],
-    },
-  );
+  ResponseBody _json(Object? data, {int statusCode = 200}) =>
+      ResponseBody.fromString(
+        jsonEncode(data),
+        statusCode,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
 
   @override
   void close({bool force = false}) {}

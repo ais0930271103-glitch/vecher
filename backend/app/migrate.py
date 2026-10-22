@@ -45,7 +45,8 @@ def check_connection(connection) -> str:
         raise SchemaNotReady("SCHEMA_NOT_READY: run python -m app.migrate upgrade after a verified backup")
     tables = set(inspect(connection).get_table_names())
     if not {"users", "pairs", "delivery_outbox", "delivery_receipts", "evenings", "evening_feedback",
-            "video_preferences", "shared_video_preferences", "video_states"}.issubset(tables):
+            "video_preferences", "shared_video_preferences", "video_states",
+            "content_preferences", "shared_content_preferences", "content_states"}.issubset(tables):
         raise SchemaNotReady("SCHEMA_NOT_READY: migration marker and tables disagree")
     return ",".join(expected)
 
@@ -64,7 +65,8 @@ def upgrade_connection(connection) -> str:
         legacy = script.get_revision("0001_legacy").module
         legacy.validate_legacy(connection)
         if {"delivery_outbox", "delivery_receipts", "evenings", "evening_feedback",
-                "video_preferences", "shared_video_preferences", "video_states"} & set(inspect(connection).get_table_names()):
+                "video_preferences", "shared_video_preferences", "video_states",
+                "content_preferences", "shared_content_preferences", "content_states"} & set(inspect(connection).get_table_names()):
             raise SchemaNotReady("SCHEMA_NOT_READY: unversioned application tables require manual inspection")
     from .crypto import encrypt
     encrypt("")  # Fail on missing/invalid DATA_KEYS before any persistent change.

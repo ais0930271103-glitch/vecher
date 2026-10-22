@@ -82,7 +82,8 @@ Future<void> _start(Dio dio, int generation) async {
         if (!_current(generation)) return;
         final body = m.notification?.body;
         if (body == null ||
-            WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+            WidgetsBinding.instance.lifecycleState !=
+                AppLifecycleState.resumed) {
           return;
         }
         if (m.data['open'] == 'chat' && chatOnScreen) return;
@@ -114,34 +115,47 @@ Future<void> _start(Dio dio, int generation) async {
   }
 }
 
-Future<void> stopPush(Dio dio) async {
+Future<void> stopPush(
+  Dio dio, {
+  Future<void> Function(String token, String platform)? unregister,
+}) async {
   _started = false;
   ++_generation;
+  // Snapshot the old session before awaiting. A subsequent account may start
+  // its own registration while this session's native initialization finishes.
+  final initialization = _initialization;
+  final registrations = _registrations.toList();
+  final token = _token;
+  _initialization = null;
+  _token = null;
+  hideTopBanner();
   await _cancelListeners();
   // Finish an in-flight registration before unlinking it from this account.
-  await _initialization;
+  // A native permission/token call may never return. Its generation is already
+  // retired, so a late return cannot start another registration for it.
+  try {
+    await initialization?.timeout(const Duration(seconds: 8));
+  } catch (_) {}
   await Future.wait(
-    _registrations.toList().map((request) async {
+    registrations.map((request) async {
       try {
         await request;
       } catch (_) {}
     }),
   );
-  _initialization = null;
-  final token = _token;
-  _token = null;
-  hideTopBanner();
   if (token == null) return;
+  final platform = defaultTargetPlatform == TargetPlatform.iOS
+      ? 'ios'
+      : 'android';
   try {
-    await dio.post(
-      '/push/unregister',
-      data: {
-        'token': token,
-        'platform': defaultTargetPlatform == TargetPlatform.iOS
-            ? 'ios'
-            : 'android',
-      },
-    );
+    if (unregister != null) {
+      await unregister(token, platform);
+    } else {
+      await dio.post(
+        '/push/unregister',
+        data: {'token': token, 'platform': platform},
+      );
+    }
   } catch (_) {}
 }
 

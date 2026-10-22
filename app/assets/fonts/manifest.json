@@ -1,0 +1,54 @@
+{
+  "source_package": "google_fonts 6.3.3",
+  "license": "SIL Open Font License 1.1",
+  "files": [
+    {
+      "file": "Comfortaa-Regular.ttf",
+      "sha256": "364495c69df1e632c7f66bac68b47f1b1dd4eb08bde94a406d8337d1fdcc5a28",
+      "bytes": 109976,
+      "source": "https://fonts.gstatic.com/s/a/364495c69df1e632c7f66bac68b47f1b1dd4eb08bde94a406d8337d1fdcc5a28.ttf"
+    },
+    {
+      "file": "Manrope-ExtraLight.ttf",
+      "sha256": "c4e536af6f237f3d6628bffc40fdb3cc118fcf8c2d3884d116c96cdc3990123a",
+      "bytes": 94848,
+      "source": "https://fonts.gstatic.com/s/a/c4e536af6f237f3d6628bffc40fdb3cc118fcf8c2d3884d116c96cdc3990123a.ttf"
+    },
+    {
+      "file": "Manrope-Light.ttf",
+      "sha256": "0eb7e6d332784315d565e6c1f4e39bfb0d9b9a6de73503619697d172b532607e",
+      "bytes": 94856,
+      "source": "https://fonts.gstatic.com/s/a/0eb7e6d332784315d565e6c1f4e39bfb0d9b9a6de73503619697d172b532607e.ttf"
+    },
+    {
+      "file": "Manrope-Regular.ttf",
+      "sha256": "1ddeeeff9fe3d294f709f2239557278930f56dab89db1fe535dc5c35cd67e0ee",
+      "bytes": 94948,
+      "source": "https://fonts.gstatic.com/s/a/1ddeeeff9fe3d294f709f2239557278930f56dab89db1fe535dc5c35cd67e0ee.ttf"
+    },
+    {
+      "file": "Manrope-Medium.ttf",
+      "sha256": "acdd0ae608f0e024750c98bb1c4e76c13e31ad2b848eb8da7fcd783c051abafa",
+      "bytes": 95036,
+      "source": "https://fonts.gstatic.com/s/a/acdd0ae608f0e024750c98bb1c4e76c13e31ad2b848eb8da7fcd783c051abafa.ttf"
+    },
+    {
+      "file": "Manrope-SemiBold.ttf",
+      "sha256": "8791ca409cf36b8b2842e40b6b1cd5b42cca064b4fdf24e30f5611536793429d",
+      "bytes": 95072,
+      "source": "https://fonts.gstatic.com/s/a/8791ca409cf36b8b2842e40b6b1cd5b42cca064b4fdf24e30f5611536793429d.ttf"
+    },
+    {
+      "file": "Manrope-Bold.ttf",
+      "sha256": "e7793683898d8a0e4c97ec50116fc021d053f2f72113982076a50a9048f101b5",
+      "bytes": 94904,
+      "source": "https://fonts.gstatic.com/s/a/e7793683898d8a0e4c97ec50116fc021d053f2f72113982076a50a9048f101b5.ttf"
+    },
+    {
+      "file": "Manrope-ExtraBold.ttf",
+      "sha256": "6b753fbbbefcdfd17909197147c199d6ebc1cd79742e853bc1e732bc9f49831b",
+      "bytes": 95664,
+      "source": "https://fonts.gstatic.com/s/a/6b753fbbbefcdfd17909197147c199d6ebc1cd79742e853bc1e732bc9f49831b.ttf"
+    }
+  ]
+}

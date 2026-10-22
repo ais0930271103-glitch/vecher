@@ -94,9 +94,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _sending = false;
   String? _error;
   Map? _attach;
+  bool _contentDraft = false;
   Map<String, dynamic>? _replyTo;
   RealtimePoll? _poll;
   StreamSubscription<Set<String>>? _realtimeUpdates;
+  ProviderSubscription<AsyncValue<Map<String, dynamic>?>>? _pairUpdates;
+  bool _pairKnown = false;
+  String? _pairId;
+  bool _pairChecking = true;
+  bool _pairFailed = false;
+  bool _pairActive = false;
+  int _pairSessionRevision = -1;
+  bool _identityVisible = false;
+  int _composerGeneration = 0;
+  int _pairValidationRequest = 0;
+  bool _pairValidationScheduled = false;
 
   @override
   void initState() {
@@ -108,12 +120,64 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     PinGate.lockedListenable.addListener(_updatePresence);
     PinGate.readyListenable.addListener(_updatePresence);
     sessionChanges.addListener(_sessionChanged);
-    _attach = widget.attach;
-    if (_attach != null) {
+    final draftText = widget.attach?['draft_text'];
+    if (draftText is String &&
+        draftText.isNotEmpty &&
+        draftText.runes.length <= 2000) {
+      _text.text = draftText;
+      _contentDraft = true;
+    } else {
+      _attach = widget.attach?.containsKey('draft_text') == true
+          ? null
+          : widget.attach;
+    }
+    if (_attach != null || _contentDraft) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _focus.requestFocus();
       });
     }
+    _pairUpdates = ref.listenManual(pairProvider, (_, next) {
+      // Reconnects also emit `all`. Only a completed pair response establishes
+      // whether the composer still belongs to the same conversation.
+      if (!mounted || sessionChanges.isChanging || _pairValidationScheduled) {
+        return;
+      }
+      if (next.isLoading) {
+        setState(() {
+          _pairChecking = true;
+          _pairFailed = false;
+        });
+        return;
+      }
+      if (next is! AsyncData<Map<String, dynamic>?>) {
+        setState(() {
+          _pairChecking = false;
+          _pairFailed = true;
+        });
+        return;
+      }
+      final pair = next.value;
+      final id = pair?['pair_id'];
+      if (pair != null && (id is! String || id.isEmpty)) {
+        setState(() {
+          _pairChecking = false;
+          _pairFailed = true;
+        });
+        return;
+      }
+      final changed = _pairKnown && id != _pairId;
+      setState(() {
+        _pairKnown = true;
+        _pairId = id as String?;
+        _pairActive = pair?['status'] == 'active';
+        _pairChecking = _pairFailed = false;
+        _pairSessionRevision = sessionChanges.revision;
+      });
+      if (changed) {
+        _clearChatContext(discardComposer: true);
+        unawaited(_refresh());
+      }
+    }, fireImmediately: true);
     secureStorage.read(key: _hintKey).then((v) {
       if (mounted && v == null) setState(() => _showHint = true);
     });
@@ -122,6 +186,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final realtime = ref.read(realtimeControllerProvider);
     _realtimeUpdates = realtime.invalidations.listen((scopes) {
       if ((scopes.contains('pair') || scopes.contains('all')) && mounted) {
+        _revalidatePair();
         _clearChatContext();
       }
       if (scopes.any({'chat', 'pair', 'all'}.contains)) {
@@ -144,20 +209,76 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       !PinGate.isLocked &&
       !sessionChanges.isChanging;
 
+  bool get _pairConfirmed =>
+      !_pairChecking &&
+      !_pairFailed &&
+      _pairKnown &&
+      _pairActive &&
+      _pairId != null &&
+      _pairSessionRevision == sessionChanges.revision &&
+      !sessionChanges.isChanging;
+
+  bool get _canSend => _visible && _pairConfirmed;
+
+  void _revalidatePair() {
+    if (!mounted || sessionChanges.isChanging) return;
+    final sessionRevision = sessionChanges.revision;
+    final request = ++_pairValidationRequest;
+    // Block immediately: invalidating a provider schedules its next load and
+    // must not leave a frame in which an old pair's composer can still send.
+    setState(() {
+      _pairChecking = true;
+      _pairFailed = false;
+      _pairValidationScheduled = true;
+    });
+    // Route/PIN visibility can change during widget construction. Defer the
+    // shared provider notification until that build is over; Send is already
+    // blocked synchronously above.
+    scheduleMicrotask(() {
+      if (!mounted ||
+          sessionChanges.isChanging ||
+          sessionRevision != sessionChanges.revision ||
+          request != _pairValidationRequest) {
+        return;
+      }
+      _pairValidationScheduled = false;
+      ref.invalidate(pairProvider);
+      ref.read(pairProvider.future).ignore();
+    });
+  }
+
   void _sessionChanged() {
     if (sessionChanges.isChanging && mounted) {
-      _clearChatContext();
+      _pairKnown = false;
+      _pairId = null;
+      _pairActive = false;
+      _pairChecking = true;
+      _pairFailed = false;
+      _pairSessionRevision = -1;
+      _pairValidationRequest++;
+      _pairValidationScheduled = false;
+      _clearChatContext(discardComposer: true);
     }
     _updatePresence();
   }
 
-  void _clearChatContext() {
+  void _clearChatContext({bool discardComposer = false}) {
     _chatGeneration++;
     _refreshCancel?.cancel();
     _olderCancel?.cancel();
     setState(() {
+      // A generic history resync must preserve edited text, legacy video
+      // references and an unconfirmed retry. Account/pair changes discard them.
+      if (discardComposer) {
+        _uploadCancel?.cancel();
+        for (final token in _downloads.values) {
+          token.cancel();
+        }
+        _downloads.clear();
+        _downloadProgress.clear();
+        _completeDraft();
+      }
       _byId.clear();
-      _replyTo = null;
       _partnerReadAt = null;
       _hasMore = false;
     });
@@ -176,6 +297,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _updatePresence() {
+    final becameVisible = _visible && !_identityVisible;
+    _identityVisible = _visible;
+    if (becameVisible) _revalidatePair();
     setChatScreenVisible(this, _visible);
     if (!_visible) {
       _refreshCancel?.cancel();
@@ -231,6 +355,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     PinGate.lockedListenable.removeListener(_updatePresence);
     PinGate.readyListenable.removeListener(_updatePresence);
     sessionChanges.removeListener(_sessionChanged);
+    _pairUpdates?.close();
     unawaited(_realtimeUpdates?.cancel());
     setChatScreenVisible(this, false);
     _poll?.cancel();
@@ -259,9 +384,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     for (final m in (data['messages'] as List)) {
       final msg = Map<String, dynamic>.from(m as Map);
       // Время сравниваем как текст: приводим к UTC, чтобы порядок был верным.
-      msg['created_at'] = DateTime.parse(
-        msg['created_at'] as String,
-      ).toUtc().toIso8601String();
+      msg['created_at'] = DateTime.parse(msg['created_at'] as String)
+          .toUtc()
+          .toIso8601String();
       _byId[msg['id'] as String] = msg;
       // The POST response can be lost after the server commits. History carries
       // our idempotency key too, so polling can acknowledge that exact draft.
@@ -385,24 +510,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _pickFile() async {
-    if (_sending || _pickingFile || _draft != null) return;
+    if (!_canSend || _sending || _pickingFile || _draft != null) return;
+    final sessionRevision = sessionChanges.revision;
+    final composerGeneration = _composerGeneration;
+    final pairId = _pairId;
     setState(() => _pickingFile = true);
     try {
       final chosen = await pickChatFile();
-      if (chosen == null || !mounted) return;
+      if (chosen == null ||
+          !mounted ||
+          sessionRevision != sessionChanges.revision ||
+          composerGeneration != _composerGeneration ||
+          pairId != _pairId) {
+        return;
+      }
       final previous = _file;
       setState(() => _file = chosen);
       unawaited(_discardUploaded(previous));
     } catch (e) {
-      _toast(chatFileErrorText(e));
+      if (mounted &&
+          sessionRevision == sessionChanges.revision &&
+          composerGeneration == _composerGeneration) {
+        _toast(chatFileErrorText(e));
+      }
     } finally {
       if (mounted) setState(() => _pickingFile = false);
     }
   }
 
-  Future<void> _discardUploaded(SelectedChatFile? file) async {
+  Future<void> _discardUploaded(
+    SelectedChatFile? file, {
+    int? sessionRevision,
+    String? pairId,
+  }) async {
     final uploaded = file?.uploaded;
-    if (uploaded == null) return;
+    if (uploaded == null ||
+        !_pairConfirmed ||
+        (sessionRevision != null &&
+            sessionRevision != sessionChanges.revision) ||
+        (pairId != null && pairId != _pairId)) {
+      return;
+    }
     try {
       // The server only permits deleting a still-unattached upload owned by us.
       // An already-delivered message must be deleted via the message action.
@@ -427,6 +575,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _completeDraft() {
+    _composerGeneration++;
+    _contentDraft = false;
     _draft = null;
     _text.clear();
     _attach = null;
@@ -474,20 +624,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _send() async {
-    if (_sending || _pickingFile) return;
+    if (!_canSend || _sending || _pickingFile) return;
     final sessionRevision = sessionChanges.revision;
     final chatGeneration = _chatGeneration;
+    final composerGeneration = _composerGeneration;
     final text = _text.text.trim();
     if (_draft == null && text.isEmpty && _attach == null && _file == null) {
       return;
     }
     final draft = _draft ??= _OutgoingDraft(
       id: newChatMessageId(),
+      pairId: _pairId!,
       text: text,
       reference: _attach == null ? null : Map<String, dynamic>.from(_attach!),
       replyId: _replyTo?['id'] as String?,
       file: _file,
     );
+    bool currentComposer() =>
+        mounted &&
+        !sessionChanges.isChanging &&
+        sessionRevision == sessionChanges.revision &&
+        composerGeneration == _composerGeneration &&
+        draft.pairId == _pairId;
+    if (!currentComposer()) return;
     setState(() => _sending = true);
     var postStarted = false;
     try {
@@ -504,7 +663,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           file,
           cancelToken: cancel,
           onProgress: (sent, total) {
-            if (mounted) {
+            if (currentComposer()) {
               setState(
                 () => _uploadProgress = total > 0
                     ? (sent / total).clamp(0.0, 1.0)
@@ -515,15 +674,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         );
         if (cancel.isCancelled) throw cancel.cancelError!;
       }
-      if (!mounted || sessionRevision != sessionChanges.revision) {
-        await _discardUploaded(file);
+      if (!currentComposer()) {
+        await _discardUploaded(
+          file,
+          sessionRevision: sessionRevision,
+          pairId: draft.pairId,
+        );
+        return;
+      }
+      if (!_canSend) {
+        // A reconnect can start while an upload is in flight. Keep its local
+        // draft, but require a new explicit Send after the identity is known.
+        if (_draft?.id == draft.id) setState(() => _draft = null);
         return;
       }
       setState(() => _uploading = false);
       _uploadCancel = null;
       _posting = postStarted = true;
       final r = await _dio.post('/chat', data: draft.toRequest());
-      if (!mounted) return;
+      if (!currentComposer()) return;
       setState(() {
         if (sessionRevision == sessionChanges.revision &&
             chatGeneration == _chatGeneration) {
@@ -535,8 +704,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         if (_draft?.id == draft.id) _completeDraft();
       });
     } catch (e) {
-      if (!mounted) {
-        await _discardUploaded(draft.file);
+      if (!currentComposer()) {
+        await _discardUploaded(
+          draft.file,
+          sessionRevision: sessionRevision,
+          pairId: draft.pairId,
+        );
         return;
       }
       final status = e is DioException ? e.response?.statusCode : null;
@@ -547,6 +720,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           status != 408 &&
           status != 429;
       if (!postStarted || rejected) setState(() => _draft = null);
+      if (e is DioException &&
+          status == 409 &&
+          e.response?.data is Map &&
+          (e.response!.data as Map)['detail'] == 'pair_changed') {
+        // The server is the final guard if the pair changes between the GET
+        // identity check and POST. Keep text until REST confirms that change.
+        _revalidatePair();
+        return;
+      }
       if (e is DioException &&
           CancelToken.isCancel(e) &&
           e.error is! ChatFileException) {
@@ -861,6 +1043,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             _Composer(
               controller: _text,
               focus: _focus,
+              canSend: _canSend,
+              pairNotice: _pairChecking
+                  ? 'Проверяем пару перед отправкой…'
+                  : _pairFailed
+                  ? 'Не удалось проверить пару. Черновик сохранён.'
+                  : !_pairActive
+                  ? 'Отправка доступна, когда пара соединена.'
+                  : null,
+              onRetryPair: _pairChecking ? null : _revalidatePair,
               sending: _sending,
               retryPending: _draft != null && !_sending,
               pickingFile: _pickingFile,
@@ -1147,6 +1338,9 @@ class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
     required this.focus,
+    required this.canSend,
+    required this.pairNotice,
+    required this.onRetryPair,
     required this.sending,
     required this.retryPending,
     required this.pickingFile,
@@ -1166,6 +1360,9 @@ class _Composer extends StatelessWidget {
 
   final TextEditingController controller;
   final FocusNode focus;
+  final bool canSend;
+  final String? pairNotice;
+  final VoidCallback? onRetryPair;
   final bool sending;
   final bool retryPending;
   final bool pickingFile;
@@ -1239,6 +1436,28 @@ class _Composer extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (pairNotice != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      pairNotice!,
+                      style: const TextStyle(
+                        color: VColors.muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  if (onRetryPair != null)
+                    TextButton(
+                      onPressed: onRetryPair,
+                      child: const Text('Проверить'),
+                    ),
+                ],
+              ),
+            ),
           if (a != null)
             _chip(
               _refIcons[a['kind']] ?? Icons.link,
@@ -1315,15 +1534,17 @@ class _Composer extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.attach_file, color: VColors.muted),
-                  onPressed: editingLocked || pickingFile ? null : onPickFile,
+                  onPressed: !canSend || editingLocked || pickingFile
+                      ? null
+                      : onPickFile,
                 ),
                 IconButton(
                   tooltip: retryPending ? 'Повторить отправку' : 'Отправить',
                   icon: Icon(
                     retryPending ? Icons.refresh : Icons.send_rounded,
-                    color: sending ? VColors.muted : VColors.gold,
+                    color: sending || !canSend ? VColors.muted : VColors.gold,
                   ),
-                  onPressed: sending || pickingFile ? null : onSend,
+                  onPressed: !canSend || sending || pickingFile ? null : onSend,
                 ),
               ],
             ),
@@ -1339,12 +1560,14 @@ class _Composer extends StatelessWidget {
 class _OutgoingDraft {
   const _OutgoingDraft({
     required this.id,
+    required this.pairId,
     required this.text,
     this.reference,
     this.replyId,
     this.file,
   });
   final String id;
+  final String pairId;
   final String text;
   final Map<String, dynamic>? reference;
   final String? replyId;
@@ -1352,6 +1575,7 @@ class _OutgoingDraft {
 
   Map<String, dynamic> toRequest() => {
     'client_message_id': id,
+    'expected_pair_id': pairId,
     if (text.isNotEmpty) 'text': text,
     if (reference != null) ...{
       'ref_kind': reference!['kind'],

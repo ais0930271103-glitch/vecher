@@ -8,3 +8,4 @@ fi
 install -d -o 10001 -g 10001 -m 755 /opt/vecher-test/downloads
 install -d -o 10001 -g 10001 -m 700 /opt/vecher-test/uploads
 # Новые вложения создаёт сам API с uid 10001. Содержимое uploads не переименовываем и не удаляем.
+python3 "$(dirname "$0")/prepare-content.py"

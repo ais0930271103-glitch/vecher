@@ -3,7 +3,7 @@ from sqlalchemy import Text, select, type_coerce
 
 from app import crypto, push
 from app.db import SessionLocal
-from app.models import ChatMessage
+from app.models import ChatAttachment, ChatMessage, ChatSendKey, DeliveryOutbox
 from conftest import login, make_pair
 
 
@@ -61,3 +61,54 @@ async def test_chat_paging(client):
     assert [m["text"] for m in page["messages"]] == ["m2", "m3", "m4"] and page["has_more"] is True
     older = (await client.get("/chat", headers=hb, params={"limit": 3, "before": page["messages"][0]["created_at"]})).json()
     assert [m["text"] for m in older["messages"]] == ["m0", "m1"] and older["has_more"] is False
+
+
+async def test_confirmed_pair_send_and_legacy_clients_remain_compatible(client):
+    ha, hb = await make_pair(client)
+    pair_id = (await client.get("/pairs/me", headers=ha)).json()["pair_id"]
+    body = {"text": "Для нашей пары", "client_message_id": "confirmed-draft",
+            "expected_pair_id": pair_id}
+    sent = await client.post("/chat", headers=ha, json=body)
+    assert sent.status_code == 201, sent.text
+    assert (await client.post("/chat", headers=ha, json=body)).json()["id"] == sent.json()["id"]
+    # The recipient guard runs before returning a cached idempotent result.
+    conflict = await client.post("/chat", headers=ha, json={**body, "expected_pair_id": "old-pair"})
+    assert conflict.status_code == 409 and conflict.json()["detail"] == "pair_changed"
+    for legacy in ({"text": "Старый APK"}, {"text": "Без проверки", "expected_pair_id": None}):
+        assert (await client.post("/chat", headers=ha, json=legacy)).status_code == 201
+    assert len((await client.get("/chat", headers=hb)).json()["messages"]) == 3
+
+
+async def test_old_pair_draft_cannot_send_to_new_partner_or_consume_attachment(client):
+    ha, _ = await make_pair(client)
+    old_pair_id = (await client.get("/pairs/me", headers=ha)).json()["pair_id"]
+    assert (await client.post("/pairs/leave", headers=ha)).status_code == 200
+    hc = await login(client, "new-partner@example.ru")
+    invitation = (await client.post("/pairs/invite", headers=ha)).json()
+    assert (await client.post("/pairs/join", headers=hc,
+                              json={"code": invitation["invite_code"]})).status_code == 200
+    new_pair_id = (await client.get("/pairs/me", headers=ha)).json()["pair_id"]
+    assert new_pair_id != old_pair_id
+    upload = await client.post("/chat/attachments", headers=ha,
+                               files={"file": ("draft.txt", b"private draft", "text/plain")})
+    assert upload.status_code == 201, upload.text
+    file_id = upload.json()["id"]
+    async with SessionLocal() as session:
+        job_ids_before = set((await session.execute(select(DeliveryOutbox.id))).scalars())
+    push.outbox.clear()
+    stale = {"text": "Сообщение для прежней пары", "client_message_id": "old-recipient-draft",
+             "attachment_ids": [file_id], "expected_pair_id": old_pair_id}
+    rejected = await client.post("/chat", headers=ha, json=stale)
+    assert rejected.status_code == 409 and rejected.json()["detail"] == "pair_changed"
+    assert (await client.get("/chat", headers=hc)).json()["messages"] == []
+    async with SessionLocal() as session:
+        assert (await session.get(ChatAttachment, file_id)).message_id is None
+        assert not (await session.execute(select(ChatSendKey))).first()
+        assert set((await session.execute(select(DeliveryOutbox.id))).scalars()) == job_ids_before
+    assert push.outbox == []
+    # After an explicit new composition for the confirmed recipient, the file is
+    # still available; rejecting the stale draft did not consume it.
+    current = {**stale, "text": "Новое сообщение", "expected_pair_id": new_pair_id}
+    accepted = await client.post("/chat", headers=ha, json=current)
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["attachments"][0]["id"] == file_id
