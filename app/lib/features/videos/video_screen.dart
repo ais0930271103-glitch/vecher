@@ -442,7 +442,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
                     VideoMode.saved =>
                       'Здесь появятся ролики, которые ты сохранишь.',
                     VideoMode.sharedCollection => 'Отправьте друг другу видео в чате — они останутся здесь.',
-                    _ => 'Пока нет роликов в этой подборке.',
+                    _ => 'В этой подборке пока нет доступных роликов. Можно выбрать другие темы или вернуться позже.',
                   },
                   action:
                       widget.mode == VideoMode.personal ||
@@ -476,7 +476,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
                         return _VideoEmpty(
                           icon: Icons.nights_stay_outlined,
                           title: 'Подборка закончилась',
-                          subtitle: 'Это первые ролики «Вечера». Сохраняй то, что понравилось, и выбирай интересы — подборка будет меняться.',
+                          subtitle: 'Доступные ролики этой подборки закончились. Новые появятся после пополнения каталога. Можно выбрать другие темы.',
                           action: 'Обновить подборку',
                           onAction: widget.onRefresh,
                         );
@@ -504,8 +504,8 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
                                   active:
                                       widget.visible &&
                                       access.allowed &&
-                                      index == _index &&
-                                      !_scrolling,
+                                      index == _index,
+                                  suspended: _scrolling,
                                   muted: widget.muted,
                                   onMute: widget.onMute,
                                   onViewed: () => unawaited(_viewed(video)),
