@@ -3,8 +3,8 @@
 # Run from any directory: powershell -NoProfile -ExecutionPolicy Bypass -File .\app\build-staging-update.ps1
 [CmdletBinding()]
 param(
-    [ValidateRange(10, 2100000000)][int]$Build = 10,
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Name = '0.5.0',
+    [ValidateRange(11, 2100000000)][int]$Build = 11,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Name = '0.6.0',
     [ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedCertificateSha256 = 'bf3d541231287a7e37629088f470d82079d6b1577d0692cceeb8597779d520c1',
     [string]$AndroidSdk = '',
     [string]$FlutterPath = '',
@@ -120,13 +120,14 @@ try {
         }
         $Notes = [IO.File]::ReadAllText($NotesPath, [Text.Encoding]::UTF8).Trim()
     }
-    $Metadata = [ordered]@{version_code = $Build; version_name = $Name; notes = $Notes; required = $false}
-    [IO.File]::WriteAllText($VersionPath, ($Metadata | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding $false))
+    $BuiltBytes = (Get-Item -LiteralPath $ApkPath).Length
     if ((Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $BuiltHash) {
         throw 'Artifact hash changed while copying.'
     }
+    $Metadata = [ordered]@{version_code = $Build; version_name = $Name; notes = $Notes; required = $false; sha256 = $BuiltHash; bytes = $BuiltBytes}
+    [IO.File]::WriteAllText($VersionPath, ($Metadata | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding $false))
     Write-Host "APK_VERSION=$Name ($Build)"
-    Write-Host "APK_BYTES=$((Get-Item -LiteralPath $ApkPath).Length)"
+    Write-Host "APK_BYTES=$BuiltBytes"
     Write-Host "APK_FILE_SHA256=$BuiltHash"
     Write-Host "APK_PATH=$ApkPath"
     Write-Host "VERSION_JSON_PATH=$VersionPath"

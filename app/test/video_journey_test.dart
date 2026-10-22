@@ -813,7 +813,7 @@ Future<_Harness> _mount(
         realtimeControllerProvider.overrideWithValue(realtime.controller),
         pairProvider.overrideWith(
           (_) async => {
-            'id': 'pair-1',
+            'pair_id': 'pair-1',
             'status': 'active',
             'partner_name': 'Саша',
           },

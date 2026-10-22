@@ -6,6 +6,11 @@ import 'package:go_router/go_router.dart';
 
 import '../features/auth/city_screen.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/content/content.dart';
+import '../features/content/content_author_screen.dart';
+import '../features/content/content_preferences_screen.dart';
+import '../features/content/content_screen.dart';
+import '../features/content/publication_screen.dart';
 import '../features/calls/call_inbox.dart';
 import '../features/calls/call_screen.dart';
 import '../features/auth/code_screen.dart';
@@ -50,6 +55,17 @@ final router = GoRouter(
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(path: '/city', builder: (_, __) => const CityScreen()),
     GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
+    GoRoute(path: '/content', builder: (_, state) => ContentScreen(
+      mode: ContentMode.parse(state.uri.queryParameters['mode']),
+      authorId: state.uri.queryParameters['author_id'],
+      seriesId: state.uri.queryParameters['series_id'],
+      title: state.uri.queryParameters['title'],
+    )),
+    GoRoute(path: '/content/preferences', builder: (_, state) => ContentPreferencesScreen(
+      shared: state.uri.queryParameters['scope'] == 'shared')),
+    GoRoute(path: '/content/authors', builder: (_, __) => const ContentAuthorsScreen()),
+    GoRoute(path: '/content/authors/:id', builder: (_, state) => ContentScreen(authorId: state.pathParameters['id']!)),
+    GoRoute(path: '/content/:id', builder: (_, state) => PublicationScreen(id: state.pathParameters['id']!)),
     GoRoute(path: '/videos', builder: (_, state) => VideoScreen(mode: VideoMode.parse(state.uri.queryParameters['mode']))),
     GoRoute(path: '/videos/:id', builder: (_, state) => VideoScreen(videoId: state.pathParameters['id']!)),
     GoRoute(path: '/call', builder: (_, __) => const CallScreen()),

@@ -86,6 +86,12 @@ class UsScreen extends ConsumerWidget {
                   onTap: () => _go(context, ref, '/us/evenings'),
                 ),
                 _Tile(
+                  icon: Icons.menu_book_outlined,
+                  title: 'Публикации для нас',
+                  subtitle: 'Отдельный выбор общих тем для двоих',
+                  onTap: () => _go(context, ref, '/content?mode=shared'),
+                ),
+                _Tile(
                   icon: Icons.smart_display_outlined,
                   title: 'Отправили друг другу',
                   subtitle: 'Видео, которыми вы явно поделились в чате',

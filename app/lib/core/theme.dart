@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// Цвета из макетов «Вечера».
 class VColors {
@@ -41,12 +40,19 @@ class VColors {
   );
 }
 
-TextStyle display(double size, {Color color = VColors.goldText}) =>
-    GoogleFonts.comfortaa(fontSize: size, color: color, fontWeight: FontWeight.w400, height: 1.2);
+TextStyle display(double size, {Color color = VColors.goldText}) => TextStyle(
+  fontFamily: 'Comfortaa',
+  fontSize: size,
+  color: color,
+  fontWeight: FontWeight.w400,
+  height: 1.2,
+);
 
 ThemeData buildTheme() {
   final base = ThemeData(brightness: Brightness.dark, useMaterial3: true);
-  final text = GoogleFonts.manropeTextTheme(base.textTheme).apply(
+  // Bundled static fonts keep first launch independent of Google Fonts/CDN.
+  final text = base.textTheme.apply(
+    fontFamily: 'Manrope',
     bodyColor: VColors.text,
     displayColor: VColors.text,
   );
@@ -77,7 +83,10 @@ ThemeData buildTheme() {
     ),
     dialogTheme: const DialogThemeData(backgroundColor: VColors.card),
     textTheme: text,
-    appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+    ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: const Color(0xFF16151F),
@@ -101,7 +110,11 @@ ThemeData buildTheme() {
         foregroundColor: VColors.ink,
         minimumSize: const Size.fromHeight(56),
         shape: const StadiumBorder(),
-        textStyle: GoogleFonts.manrope(fontSize: 17, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(
+          fontFamily: 'Manrope',
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     ),
     textButtonTheme: TextButtonThemeData(

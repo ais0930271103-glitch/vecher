@@ -39,6 +39,9 @@ class MessageIn(BaseModel):
     reply_to: str | None = None
     attachment_ids: list[str] | None = Field(default=None, max_length=5)
     client_message_id: str | None = Field(default=None, min_length=1, max_length=64)
+    # Older APKs omit this field. New clients bind a draft to the confirmed pair
+    # so reconnecting after a pair change cannot send it to a new recipient.
+    expected_pair_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class ReactIn(BaseModel):
@@ -155,6 +158,8 @@ async def unread(ctx: PairContext = Depends(active_pair), session: AsyncSession 
 @router.post("", response_model=MessageOut, status_code=201)
 async def send(body: MessageIn, ctx: PairContext = Depends(active_pair),
                session: AsyncSession = Depends(get_session)):
+    if body.expected_pair_id is not None and body.expected_pair_id != ctx.pair.id:
+        raise HTTPException(409, "pair_changed")
     text = (body.text or "").strip() or None
     if body.ref_kind is not None and body.ref_kind not in REF_KINDS:
         raise HTTPException(422, "Неизвестный тип вложения")

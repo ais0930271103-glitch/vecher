@@ -6,7 +6,8 @@ import '../auth/consent_screen.dart';
 import '../../core/api.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
-import '../videos/video_entries.dart';
+import '../content/content.dart';
+import '../content/content_entries.dart';
 import '../videos/videos.dart';
 
 /// Колоды и счётчик совпадений: GET /wishes/decks.
@@ -35,6 +36,7 @@ class WishesScreen extends ConsumerWidget {
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
+            invalidateContent(ref);
             invalidateVideos(ref);
             ref.invalidate(decksProvider);
             try { await ref.read(decksProvider.future); } catch (_) {
@@ -42,7 +44,7 @@ class WishesScreen extends ConsumerWidget {
             }
           },
           child: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(20), children: [
-            const VideoTogetherCard(),
+            const ContentTogetherCard(),
             const SizedBox(height: 24),
             const Text(
               'Листайте карточки каждый сам. Партнёр увидит только то, чего вы хотите оба, '

@@ -55,6 +55,37 @@ class VideoState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ContentPreferences(Base):
+    """Private topics, language, author follows and hides; never merged into a couple."""
+    __tablename__ = "content_preferences"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    data: Mapped[str] = mapped_column(Encrypted())
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SharedContentPreferences(Base):
+    """Only the topics/language deliberately chosen for the current pair."""
+    __tablename__ = "shared_content_preferences"
+
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), primary_key=True)
+    data: Mapped[str] = mapped_column(Encrypted())
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ContentState(Base):
+    """Explicit private feedback only; no reading time, scrolling or implicit profiling."""
+    __tablename__ = "content_states"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    content_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[str] = mapped_column(Encrypted())
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class LoginCode(Base):
     """One-time e-mail code. Only a keyed hash of the code is stored."""
 

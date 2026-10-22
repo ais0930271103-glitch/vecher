@@ -14,6 +14,7 @@ import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../us/us_screen.dart';
 import '../wishes/evenings.dart' show currentEveningProvider;
+import '../content/content.dart';
 import 'invites.dart';
 import 'paired_today.dart';
 
@@ -48,6 +49,7 @@ class TodayScreen extends ConsumerWidget {
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
+            invalidateContent(ref);
             ref.invalidate(todayProvider);
             ref.invalidate(upcomingProvider);
             ref.invalidate(currentEveningProvider);

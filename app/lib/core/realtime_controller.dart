@@ -99,11 +99,10 @@ class RealtimeSessionEnded implements Exception {
   const RealtimeSessionEnded();
 }
 
-typedef RealtimeTransportFactory =
-    RealtimeTransport Function(
-      RealtimeSession session,
-      Future<String> Function() refreshToken,
-    );
+typedef RealtimeTransportFactory = RealtimeTransport Function(
+  RealtimeSession session,
+  Future<String> Function() refreshToken,
+);
 
 /// One foreground account session. Publications only invalidate REST data.
 /// Every asynchronous boundary checks the generation; stopping is synchronous.
@@ -162,6 +161,13 @@ class RealtimeController extends ChangeNotifier {
     _seen.clear();
     _detachTransport();
     _setConnected(false);
+  }
+
+  /// A trusted API mirror changed while this account was subscribed.
+  void reconnect() {
+    if (!_active || _disposed) return;
+    _queue({'all'});
+    unawaited(_start());
   }
 
   bool _current(int generation) =>

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api.dart';
+import 'network_client.dart';
 import 'push.dart';
 import 'router.dart';
 import 'session_changes.dart';
@@ -51,12 +52,51 @@ Future<bool> checkPin(String pin) async => (await secureStorage.read(key: _pinKe
 /// Выйти из аккаунта на этом телефоне: отвязать push, забыть сессию и код-пароль.
 Future<void> signOut(Dio dio) async {
   final revision = sessionChanges.begin();
+  final cleanup = CancelToken();
+  bool current() =>
+      sessionChanges.isChanging && sessionChanges.revision == revision;
+  void changed() {
+    if (!current() && !cleanup.isCancelled) {
+      cleanup.cancel('Logout session ended');
+    }
+  }
+
+  sessionChanges.addListener(changed);
   try {
-    await stopPush(dio);
+    // Retire the old push listeners before the first await, including when a
+    // new login starts while native secure storage is still reading the token.
+    final oldToken = readToken().timeout(const Duration(seconds: 3))
+        .onError((_, __) => null);
+    await stopPush(
+      dio,
+      unregister: (token, platform) async {
+        final accessToken = await oldToken;
+        if (accessToken == null || !current()) return;
+        await unregisterPushForLogout(
+          dio,
+          accessToken: accessToken,
+          revision: revision,
+          pushToken: token,
+          platform: platform,
+          cancelToken: cleanup,
+        );
+      },
+    );
+    if (!current()) return;
     await clearToken();
+    // clearToken owns a nested begin/finish pair. Do not clear a newer login's
+    // PIN if another session replaced this logout while storage was awaited.
+    if (sessionChanges.isChanging || sessionChanges.revision != revision + 2) {
+      return;
+    }
     await clearPin();
+    if (sessionChanges.isChanging || sessionChanges.revision != revision + 2) {
+      return;
+    }
     PinGate.unlock();
   } finally {
+    sessionChanges.removeListener(changed);
+    if (!cleanup.isCancelled) cleanup.cancel('Logout cleanup finished');
     // A failed push cleanup must not leave foreground refresh permanently suspended.
     sessionChanges.finish(revision);
   }

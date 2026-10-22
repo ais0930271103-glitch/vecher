@@ -8,6 +8,7 @@ import '../../core/api.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
+import '../content/content_entries.dart';
 
 /// Данные «Моего пространства»: GET /solo.
 final soloProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -79,6 +80,8 @@ class _Body extends ConsumerWidget {
       ]),
       const SizedBox(height: 16),
 
+      const ContentPersonalCard(),
+      const SizedBox(height: 16),
       // Прогресс по карточкам — кольцо как в макете.
       InkWell(
         borderRadius: BorderRadius.circular(24),

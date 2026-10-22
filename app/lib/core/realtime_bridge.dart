@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/auth/consent_screen.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/content/content.dart';
 import '../features/solo/solo_screen.dart';
 import '../features/today/invites.dart';
 import '../features/today/paired_today.dart';
@@ -114,6 +115,7 @@ class _RealtimeBridgeState extends ConsumerState<RealtimeBridge>
     }
     if (all || scopes.contains('chat')) ref.invalidate(chatUnreadProvider);
     if (all || scopes.any({'us', 'solo'}.contains)) {
+      invalidateContent(ref);
       ref.invalidate(videoSettingsProvider);
       ref.invalidate(videoFeedProvider);
       ref.invalidate(shortVideoProvider);

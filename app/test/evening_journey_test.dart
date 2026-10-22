@@ -158,7 +158,12 @@ void main() {
         ..offlineNextStep = true;
       await _mount(tester, api);
       await _tap(tester, 'Сделали');
-      expect(find.text('Нет связи с сервером'), findsOneWidget);
+      expect(
+        find.text(
+          'Нет связи с сервером. Проверь подключение и попробуй ещё раз',
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Налейте любимый чай.'), findsOneWidget);
       expect((api.evening!['steps'] as List).first['status'], 'pending');
       await _tap(tester, 'Сделали');
@@ -175,7 +180,10 @@ void main() {
     await _mount(tester, api, start: '/wishes/plan/42');
     await _tap(tester, 'Начать вечер');
     await _tap(tester, 'Рядом — начать');
-    expect(find.text('Нет связи с сервером'), findsOneWidget);
+    expect(
+      find.text('Нет связи с сервером. Проверь подключение и попробуй ещё раз'),
+      findsOneWidget,
+    );
     expect(api.posts, hasLength(1));
     await _tap(tester, 'Начать вечер');
     await _tap(tester, 'Рядом — начать');
