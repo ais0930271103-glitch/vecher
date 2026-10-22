@@ -86,6 +86,18 @@ class UsScreen extends ConsumerWidget {
                   onTap: () => _go(context, ref, '/us/evenings'),
                 ),
                 _Tile(
+                  icon: Icons.smart_display_outlined,
+                  title: 'Отправили друг другу',
+                  subtitle: 'Видео, которыми вы явно поделились в чате',
+                  onTap: () => _go(context, ref, '/videos?mode=shared_collection'),
+                ),
+                _Tile(
+                  icon: Icons.bookmark_outline,
+                  title: 'Мои сохранённые видео',
+                  subtitle: 'Личная коллекция — видна только тебе',
+                  onTap: () => _go(context, ref, '/videos?mode=saved'),
+                ),
+                _Tile(
                   icon: Icons.favorite_outline,
                   title: 'Мой человек${p['partner_name'] == null ? '' : ': ${p['partner_name']}'}',
                   subtitle: filled == 0

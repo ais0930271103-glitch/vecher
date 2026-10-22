@@ -22,3 +22,7 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - name: Android native plugins compile
+        run: flutter build apk --debug --target-platform android-arm64

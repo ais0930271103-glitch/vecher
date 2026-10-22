@@ -25,6 +25,36 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class VideoPreferences(Base):
+    """Personal video topics. Never copied into the couple's shared preferences."""
+    __tablename__ = "video_preferences"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    topics: Mapped[str] = mapped_column(Encrypted())
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SharedVideoPreferences(Base):
+    """Explicitly shared topics; unrelated to private wishes, likes or viewing history."""
+    __tablename__ = "shared_video_preferences"
+
+    pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), primary_key=True)
+    topics: Mapped[str] = mapped_column(Encrypted())
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VideoState(Base):
+    """Own explicit feedback and last viewing day, encrypted together, without viewing duration."""
+    __tablename__ = "video_states"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    video_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    data: Mapped[str] = mapped_column(Encrypted())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class LoginCode(Base):
     """One-time e-mail code. Only a keyed hash of the code is stored."""
 
@@ -458,7 +488,7 @@ class ChatMessage(Base):
     pair_id: Mapped[str] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), index=True)
     from_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     text: Mapped[str | None] = mapped_column(Encrypted())
-    ref_kind: Mapped[str | None] = mapped_column(String(16))  # match | plan | invite | letter
+    ref_kind: Mapped[str | None] = mapped_column(String(16))  # match | plan | invite | letter | video
     ref_id: Mapped[str | None] = mapped_column(String(64))
     ref_title: Mapped[str | None] = mapped_column(Encrypted())
     reply_to_id: Mapped[str | None] = mapped_column(String(36))

@@ -3,8 +3,8 @@
 # Run from any directory: powershell -NoProfile -ExecutionPolicy Bypass -File .\app\build-staging-update.ps1
 [CmdletBinding()]
 param(
-    [ValidateRange(9, 2100000000)][int]$Build = 9,
-    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Name = '0.4.0',
+    [ValidateRange(10, 2100000000)][int]$Build = 10,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Name = '0.5.0',
     [ValidatePattern('^[0-9a-fA-F]{64}$')][string]$ExpectedCertificateSha256 = 'bf3d541231287a7e37629088f470d82079d6b1577d0692cceeb8597779d520c1',
     [string]$AndroidSdk = '',
     [string]$FlutterPath = '',

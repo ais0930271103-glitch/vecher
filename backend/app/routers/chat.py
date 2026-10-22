@@ -17,10 +17,11 @@ from ..attachments import AttachmentOut, _expired, attachment_out, delete_attach
 from ..pair_lock import pair_lock
 from ..push import display_name, notify
 from ..realtime import invalidate_pair
+from ..video_catalogue import find_video
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-REF_KINDS = ("match", "plan", "invite", "letter")
+REF_KINDS = ("match", "plan", "invite", "letter", "video")
 REACTIONS = ("❤️", "😂", "😮", "😢", "👍", "🔥")
 
 
@@ -170,6 +171,12 @@ async def send(body: MessageIn, ctx: PairContext = Depends(active_pair),
                 out = await _message_out(session, old, ctx.user.id)
                 await session.commit()
                 return out
+        ref_title = (body.ref_title or None) if body.ref_kind else None
+        if body.ref_kind == "video":
+            video = find_video(body.ref_id)
+            if video is None:
+                raise HTTPException(404, "Этот ролик сейчас недоступен")
+            ref_title = video.title
         reply = None
         if body.reply_to:
             reply = await session.get(ChatMessage, body.reply_to)
@@ -184,7 +191,7 @@ async def send(body: MessageIn, ctx: PairContext = Depends(active_pair),
                 raise HTTPException(409, "Файл уже отправлен")
             files.append(file)
         m = ChatMessage(pair_id=ctx.pair.id, from_id=ctx.user.id, text=text, ref_kind=body.ref_kind,
-                        ref_id=body.ref_id, ref_title=(body.ref_title or None) if body.ref_kind else None,
+                        ref_id=body.ref_id, ref_title=ref_title,
                         reply_to_id=reply.id if reply else None)
         session.add(m)
         await session.flush()
