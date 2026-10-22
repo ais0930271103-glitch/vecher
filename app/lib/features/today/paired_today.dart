@@ -17,6 +17,7 @@ import '../wishes/evening_screen.dart' show CurrentEveningCard;
 import '../wishes/evenings.dart' show currentEveningProvider;
 import 'invites.dart';
 import '../chat/chat_screen.dart';
+import '../videos/video_entries.dart';
 
 /// Данные экрана «Сегодня» для пары: GET /today.
 final todayProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -118,6 +119,7 @@ class _PairedTodayState extends ConsumerState<PairedToday> {
         ]),
         const SizedBox(height: 16),
         const CurrentEveningCard(),
+        const VideoTodayCard(),
         if (t['partner_mood'] != null)
           _PartnerMood(mood: Map<String, dynamic>.from(t['partner_mood'] as Map), partnerName: widget.partnerName),
         InvitesSection(partnerName: widget.partnerName),

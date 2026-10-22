@@ -46,9 +46,9 @@ async def table_names(engine):
 
 
 async def test_fresh_schema_upgrade_matches_models_and_is_idempotent(migration_db):
-    assert await upgrade(migration_db) == "0003_evenings"
-    assert await check(migration_db) == "0003_evenings"
-    assert await upgrade(migration_db) == "0003_evenings"
+    assert await upgrade(migration_db) == "0004_videos"
+    assert await check(migration_db) == "0004_videos"
+    assert await upgrade(migration_db) == "0004_videos"
     assert await table_names(migration_db) == set(Base.metadata.tables) | {"alembic_version"}
     async with migration_db.connect() as connection:
         columns = await connection.run_sync(lambda c: {name: {x["name"] for x in sa.inspect(c).get_columns(name)}
@@ -67,7 +67,7 @@ async def test_existing_legacy_data_is_adopted_without_recreation(migration_db):
     with pytest.raises(SchemaNotReady):
         await check(migration_db)
     assert "delivery_outbox" not in await table_names(migration_db)
-    assert await upgrade(migration_db) == "0003_evenings"
+    assert await upgrade(migration_db) == "0004_videos"
     async with migration_db.connect() as connection:
         name = await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'"))
         raw = await connection.scalar(sa.text("SELECT text FROM daily_answers WHERE id='legacy-answer'"))
@@ -117,7 +117,7 @@ async def test_failed_later_revision_rolls_back_baseline_and_plaintext_backfill(
         assert raw == "legacy private answer"
         assert await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'")) == "Saved name"
     monkeypatch.setattr(Operations, "create_table", real_create_table)
-    assert await upgrade(migration_db) == "0003_evenings"
+    assert await upgrade(migration_db) == "0004_videos"
 
 
 async def test_required_null_legacy_column_is_not_silently_adopted(migration_db):
@@ -175,7 +175,7 @@ async def test_outbox_upgrade_keeps_legacy_plans_and_rejects_old_api_head(migrat
             id=1, deck="home", text="Existing matched card", level="warm", active=True))
         await connection.execute(metadata.tables["plan_unlocks"].insert().values(
             id="old-open", pair_id="legacy-pair", card_id=1, free=False, scheduled_at=now, created_at=now))
-    assert await upgrade(migration_db) == "0003_evenings"
+    assert await upgrade(migration_db) == "0004_videos"
     async with migration_db.connect() as connection:
         row = (await connection.execute(sa.text("SELECT id, free, scheduled_at FROM plan_unlocks"))).one()
         assert row.id == "old-open" and not row.free and row.scheduled_at
@@ -208,7 +208,7 @@ async def test_failed_evening_revision_rolls_back_to_outbox_without_data_loss(mi
         assert await connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0002_outbox"
         assert await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'")) == "Saved name"
     monkeypatch.setattr(Operations, "create_table", real_create_table)
-    assert await upgrade(migration_db) == "0003_evenings"
+    assert await upgrade(migration_db) == "0004_videos"
 
 
 async def test_legacy_pair_delete_cascades_new_evening_tables_with_real_foreign_keys(migration_db):
@@ -235,3 +235,81 @@ async def test_legacy_pair_delete_cascades_new_evening_tables_with_real_foreign_
             await connection.execute(sa.text("DELETE FROM pairs WHERE id='legacy-pair'"))
             assert await connection.scalar(sa.text("SELECT count(*) FROM evenings")) == 0
             assert await connection.scalar(sa.text("SELECT count(*) FROM evening_feedback")) == 0
+
+
+async def upgrade_to_evenings(engine):
+    """Actual previous release, without the new tables or current ORM metadata."""
+    def run(connection):
+        config = migration_config()
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0003_evenings")
+    async with engine.begin() as connection:
+        if connection.dialect.name == "sqlite":
+            await connection.exec_driver_sql("BEGIN")
+        await connection.run_sync(run)
+
+
+async def test_video_upgrade_preserves_previous_rows_rejects_old_head_and_old_delete_cascades(migration_db, monkeypatch):
+    from app import migrate
+    from app.models import Evening, SharedVideoPreferences, VideoPreferences, VideoState
+
+    metadata = await create_legacy(migration_db)
+    await upgrade_to_evenings(migration_db)
+    now = datetime.now(timezone.utc)
+    async with migration_db.begin() as connection:
+        await connection.execute(metadata.tables["wish_cards"].insert().values(
+            id=1, deck="home", text="Card", level="warm", active=True))
+        await connection.execute(Evening.__table__.insert().values(
+            id="retained-evening", pair_id="legacy-pair", active_pair_id="legacy-pair", client_id="request",
+            card_id=1, started_by="legacy-user", option_index=0, mode="together", status="active",
+            revision=3, snapshot='{"private":"unchanged"}', progress='["done"]', started_at=now, updated_at=now))
+        before = (await connection.execute(sa.text("SELECT snapshot, progress, revision FROM evenings"))).one()
+    assert await upgrade(migration_db) == "0004_videos"
+    assert await upgrade(migration_db) == "0004_videos"
+    async with migration_db.connect() as connection:
+        assert (await connection.execute(sa.text("SELECT snapshot, progress, revision FROM evenings"))).one() == before
+        assert await connection.scalar(sa.text("SELECT count(*) FROM video_states")) == 0
+        if connection.dialect.name == "sqlite":
+            await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            assert await connection.scalar(sa.text("PRAGMA foreign_keys")) == 1
+        await connection.commit()
+        async with connection.begin():
+            await connection.execute(VideoPreferences.__table__.insert().values(
+                user_id="legacy-user", topics='["animals"]', revision=1, updated_at=now))
+            await connection.execute(VideoState.__table__.insert().values(
+                user_id="legacy-user", video_id="cat", data='{"saved":true}', updated_at=now))
+            await connection.execute(SharedVideoPreferences.__table__.insert().values(
+                pair_id="legacy-pair", topics='["travel"]', revision=1, updated_at=now))
+            # A compatible recovery image knows only old models; the new FKs
+            # still guarantee privacy if an account/pair is erased in recovery.
+            await connection.execute(sa.text("DELETE FROM pairs WHERE id='legacy-pair'"))
+            assert await connection.scalar(sa.text("SELECT count(*) FROM shared_video_preferences")) == 0
+            assert await connection.scalar(sa.text("SELECT count(*) FROM video_states")) == 1
+            await connection.execute(sa.text("DELETE FROM users WHERE id='legacy-user'"))
+            assert await connection.scalar(sa.text("SELECT count(*) FROM video_states")) == 0
+            assert await connection.scalar(sa.text("SELECT count(*) FROM video_preferences")) == 0
+    monkeypatch.setattr(migrate, "expected_heads", lambda: ("0003_evenings",))
+    with pytest.raises(SchemaNotReady):
+        await check(migration_db)
+
+
+async def test_failed_video_revision_rolls_back_to_evenings_with_existing_rows(migration_db, monkeypatch):
+    await create_legacy(migration_db)
+    await upgrade_to_evenings(migration_db)
+    before = await table_names(migration_db)
+    real_create_table = Operations.create_table
+
+    def fail_states(self, name, *args, **kwargs):
+        if name == "video_states":
+            raise RuntimeError("injected failure in fourth revision")
+        return real_create_table(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(Operations, "create_table", fail_states)
+    with pytest.raises(RuntimeError, match="injected failure in fourth revision"):
+        await upgrade(migration_db)
+    assert await table_names(migration_db) == before
+    async with migration_db.connect() as connection:
+        assert await connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0003_evenings"
+        assert await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'")) == "Saved name"
+    monkeypatch.setattr(Operations, "create_table", real_create_table)
+    assert await upgrade(migration_db) == "0004_videos"

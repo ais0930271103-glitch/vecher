@@ -21,6 +21,7 @@ import '../today/today_screen.dart' show pairProvider;
 import 'attachment_download.dart';
 import 'attachment_models.dart';
 import 'chat_attachments.dart';
+import '../videos/video_entries.dart';
 
 /// Непрочитанные сообщения партнёра — для значка в шапке «Сегодня».
 final chatUnreadProvider = FutureProvider.autoDispose<int>((ref) async {
@@ -41,12 +42,14 @@ const _refIcons = <String, IconData>{
   'plan': Icons.event_note_outlined,
   'invite': Icons.nightlight_outlined,
   'letter': Icons.mail_outline,
+  'video': Icons.smart_display_outlined,
 };
 const _refLabels = <String, String>{
   'match': 'Совпадение',
   'plan': 'План',
   'invite': 'Приглашение',
   'letter': 'Письмо',
+  'video': 'Короткое видео',
 };
 const _reactions = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
 const _hintKey = 'vecher_chat_hint_seen';
@@ -895,25 +898,27 @@ class _Empty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.chat_bubble_outline,
-              size: 40,
-              color: VColors.gold,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              error ??
-                  'Здесь только вы двое. Напиши ${partnerName ?? 'партнёру'} что-нибудь тёплое.\n\n'
-                      'Свайп вправо по сообщению — ответить, двойное касание — ❤️, удерживай — реакции и другое.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: VColors.soft, height: 1.4),
-            ),
-          ],
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.chat_bubble_outline,
+                size: 40,
+                color: VColors.gold,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                error ??
+                    'Здесь только вы двое. Напиши ${partnerName ?? 'партнёру'} что-нибудь тёплое.\n\n'
+                        'Свайп вправо по сообщению — ответить, двойное касание — ❤️, удерживай — реакции и другое.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: VColors.soft, height: 1.4),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1013,7 +1018,12 @@ class _Bubble extends StatelessWidget {
                         ),
                       ),
                     ),
-                  if (kind != null && !deleted)
+                  if (kind == 'video' && !deleted && m['ref_id'] is String)
+                    VideoChatReference(
+                      id: m['ref_id'] as String,
+                      title: m['ref_title'] as String? ?? 'Короткое видео',
+                    )
+                  else if (kind != null && !deleted)
                     Container(
                       margin: const EdgeInsets.only(bottom: 6),
                       padding: const EdgeInsets.all(10),

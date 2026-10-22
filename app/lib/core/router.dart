@@ -26,6 +26,8 @@ import '../features/wishes/plan_screen.dart';
 import '../features/wishes/evening_screen.dart';
 import '../features/wishes/swipe_screen.dart';
 import '../features/wishes/wishes_screen.dart';
+import '../features/videos/video_screen.dart';
+import '../features/videos/videos.dart';
 import 'api.dart';
 import 'chat_presence.dart';
 import 'push.dart';
@@ -48,6 +50,8 @@ final router = GoRouter(
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(path: '/city', builder: (_, __) => const CityScreen()),
     GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
+    GoRoute(path: '/videos', builder: (_, state) => VideoScreen(mode: VideoMode.parse(state.uri.queryParameters['mode']))),
+    GoRoute(path: '/videos/:id', builder: (_, state) => VideoScreen(videoId: state.pathParameters['id']!)),
     GoRoute(path: '/call', builder: (_, __) => const CallScreen()),
     GoRoute(path: '/call/:id', builder: (_, state) => CallScreen(callId: state.pathParameters['id']!)),
     GoRoute(path: '/evenings/:id', builder: (_, state) => EveningScreen(eveningId: state.pathParameters['id']!)),

@@ -15,6 +15,7 @@ import '../features/wishes/places_screen.dart';
 import '../features/wishes/plan_screen.dart';
 import '../features/wishes/wishes_screen.dart';
 import '../features/wishes/evenings.dart';
+import '../features/videos/videos.dart';
 import 'api.dart';
 import 'privacy.dart';
 import 'realtime_controller.dart';
@@ -112,6 +113,13 @@ class _RealtimeBridgeState extends ConsumerState<RealtimeBridge>
       invalidateEvenings(ref);
     }
     if (all || scopes.contains('chat')) ref.invalidate(chatUnreadProvider);
+    if (all || scopes.any({'us', 'solo'}.contains)) {
+      ref.invalidate(videoSettingsProvider);
+      ref.invalidate(videoFeedProvider);
+      ref.invalidate(shortVideoProvider);
+    } else if (scopes.contains('chat')) {
+      ref.invalidate(videoFeedProvider(VideoMode.sharedCollection));
+    }
     if (all || scopes.contains('us')) {
       ref.invalidate(personProvider);
       ref.invalidate(datesProvider);

@@ -17,6 +17,7 @@ from ..models import Consent, LoginCode, PairMember, User, UserCity
 from ..push import notify
 from ..realtime import enqueue_invalidation, invalidate_profile
 from ..pair_lock import pair_lock
+from ..user_lock import user_lock
 from ..security import create_token, current_user, hash_otp, new_otp
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -189,7 +190,7 @@ async def delete_account(user: User = Depends(current_user), session: AsyncSessi
     name, uid = user.display_name or "Партнёр", user.id
     pair_id = (await session.execute(select(PairMember.pair_id).where(PairMember.user_id == user.id))).scalar_one_or_none()
     if pair_id:
-        async with pair_lock(session, pair_id, active=False):
+        async with pair_lock(session, pair_id, active=False), user_lock(session, user.id):
             await erase_user(session, user)
             if partner_id:
                 await notify(session, partner_id, "Вечер",
@@ -198,8 +199,9 @@ async def delete_account(user: User = Depends(current_user), session: AsyncSessi
                 await enqueue_invalidation(session, [partner_id], ["all"], force=True)
             await session.commit()
     else:
-        await erase_user(session, user)
-        await session.commit()
+        async with user_lock(session, user.id):
+            await erase_user(session, user)
+            await session.commit()
     log.info("Account deleted: %s", uid)
     return {"deleted": True}
 

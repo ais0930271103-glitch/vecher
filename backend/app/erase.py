@@ -7,16 +7,18 @@ from .models import (
     PairSubscription, PartnerNote, PlanUnlock, PlanVote, ProfileFact, QuietWish, RadarSignal, Reminder, Surprise,
     User, UserCity, UserSettings, WishSwipe, WishView,
     CallSignal, ChatAttachment, ChatSendKey, PairCall, DeliveryOutbox, DeliveryReceipt, Evening, EveningFeedback,
+    VideoPreferences, SharedVideoPreferences, VideoState,
 )
 from .attachments import delete_attachments
 
 # Всё, что относится к паре: ответы, выборы в свайпере, планы, даты, письма, сюрпризы, заметки.
 PAIR_TABLES = (DailyAnswer, DailyMood, Activity, RadarSignal, WishSwipe, WishView, PairSubscription, PlanUnlock, PlanVote,
-               PartnerNote, PairDate, Reminder, Letter, Surprise, PairPause, PairLevel, Invite, ChatMessage, ChatRead, PlaceVote)
+               PartnerNote, PairDate, Reminder, Letter, Surprise, PairPause, PairLevel, Invite, ChatMessage, ChatRead, PlaceVote,
+               SharedVideoPreferences)
 # Личное, не связанное с парой: анкета «о себе», тихие желания, устройства, согласия, настройки.
 USER_TABLES = ((ProfileFact, ProfileFact.user_id), (QuietWish, QuietWish.user_id),
                (DeviceToken, DeviceToken.user_id), (Consent, Consent.user_id), (UserSettings, UserSettings.user_id),
-               (UserCity, UserCity.user_id))
+               (UserCity, UserCity.user_id), (VideoPreferences, VideoPreferences.user_id), (VideoState, VideoState.user_id))
 
 
 async def erase_pair(session: AsyncSession, pair_id: str) -> None:

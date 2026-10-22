@@ -6,6 +6,8 @@ import '../auth/consent_screen.dart';
 import '../../core/api.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
+import '../videos/video_entries.dart';
+import '../videos/videos.dart';
 
 /// Колоды и счётчик совпадений: GET /wishes/decks.
 final decksProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
@@ -32,8 +34,16 @@ class WishesScreen extends ConsumerWidget {
       appBar: AppBar(title: Text('Вместе', style: display(24))),
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () => ref.refresh(decksProvider.future),
-          child: ListView(padding: const EdgeInsets.all(20), children: [
+          onRefresh: () async {
+            invalidateVideos(ref);
+            ref.invalidate(decksProvider);
+            try { await ref.read(decksProvider.future); } catch (_) {
+              // The error remains visible with its own retry action.
+            }
+          },
+          child: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(20), children: [
+            const VideoTogetherCard(),
+            const SizedBox(height: 24),
             const Text(
               'Листайте карточки каждый сам. Партнёр увидит только то, чего вы хотите оба, '
               '— твоё «да» без взаимности останется тайной.',
@@ -54,7 +64,11 @@ class WishesScreen extends ConsumerWidget {
                 padding: EdgeInsets.only(top: 60),
                 child: Center(child: CircularProgressIndicator()),
               ),
-              error: (e, _) => Text(errorText(e), style: const TextStyle(color: Color(0xFFF5A894))),
+              error: (e, _) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(errorText(e), style: const TextStyle(color: Color(0xFFF5A894))),
+                TextButton.icon(onPressed: () => ref.invalidate(decksProvider),
+                  icon: const Icon(Icons.refresh), label: const Text('Повторить загрузку карточек')),
+              ]),
               data: (d) {
                 final list = (d['decks'] as List).cast<Map>();
                 return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
