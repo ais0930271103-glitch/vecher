@@ -181,6 +181,309 @@ void main() {
   });
 
   testWidgets(
+    'cancelled swipe retains the current buffer and manual pause intent',
+    (tester) async {
+      final h = await _mount(tester, _VideoApi());
+      final player = h.players.single;
+      player.advance(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      Future<void> cancelledSwipe() async {
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byType(PageView)),
+        );
+        await gesture.moveBy(const Offset(0, -80));
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(player.playing, isFalse);
+        expect(player.closed, isFalse);
+        expect(h.players, hasLength(1));
+        await gesture.moveBy(const Offset(0, 80));
+        await tester.pump(const Duration(milliseconds: 200));
+        await gesture.up();
+        await tester.pumpAndSettle();
+      }
+
+      await cancelledSwipe();
+      expect(player.playing, isTrue);
+      expect(player.position, const Duration(seconds: 3));
+      expect(h.players, hasLength(1));
+      await tester.tap(find.byTooltip('Пауза'));
+      await tester.pumpAndSettle();
+      await cancelledSwipe();
+      expect(player.playing, isFalse);
+      expect(h.players, hasLength(1));
+      await tester.pump(const Duration(seconds: 30));
+      expect(find.text('Не удалось воспроизвести видео'), findsNothing);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'initialization timeout closes the player and late success cannot play',
+    (tester) async {
+      final gate = Completer<void>();
+      final api = _VideoApi();
+      final h = await _mount(tester, api, initializeGate: gate, settle: false);
+      for (var i = 0; i < 5 && h.players.isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.pump(const Duration(seconds: 21));
+      await tester.pumpAndSettle();
+      expect(find.text('Не удалось воспроизвести видео'), findsOneWidget);
+      expect(h.players.single.closed, isTrue);
+      expect(find.textContaining('Этап:'), findsNothing);
+      await _tap(tester, 'Сведения об ошибке');
+      expect(
+        find.text('Ролик: cat\nЭтап: initialization\nКод: timeout'),
+        findsOneWidget,
+      );
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(h.players.single.playCalls, 0);
+      expect(api.viewed, isEmpty);
+      expect(api.changes, isEmpty);
+      await _tap(tester, 'Повторить видео');
+      expect(h.players, hasLength(2));
+      expect(h.players.last.playing, isTrue);
+      expect(find.textContaining('Этап:'), findsNothing);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'buffering without progress has a deadline and no automatic retry',
+    (tester) async {
+      final api = _VideoApi();
+      final h = await _mount(tester, api);
+      final player = h.players.single;
+      player.advance(const Duration(seconds: 1));
+      player.buffering = true;
+      player.notifyListeners();
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.text('Не удалось воспроизвести видео'), findsNothing);
+      player.advance(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 19));
+      expect(find.text('Не удалось воспроизвести видео'), findsNothing);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(player.closed, isTrue);
+      expect(find.text('Не удалось воспроизвести видео'), findsOneWidget);
+      await _tap(tester, 'Сведения об ошибке');
+      expect(
+        find.text('Ролик: cat\nЭтап: playback\nКод: no_progress'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 60));
+      expect(h.players, hasLength(1));
+      expect(api.viewed, isEmpty);
+      expect(api.changes, isEmpty);
+      await _tap(tester, 'Повторить видео');
+      expect(h.players, hasLength(2));
+      expect(h.players.last.playing, isTrue);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets('manual pause and a covered route cancel the progress deadline', (
+    tester,
+  ) async {
+    final h = await _mount(tester, _VideoApi());
+    final player = h.players.single;
+    player.buffering = true;
+    player.notifyListeners();
+    await tester.pump(const Duration(seconds: 10));
+    await tester.tap(find.byTooltip('Пауза'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+    expect(player.closed, isFalse);
+    expect(player.playing, isFalse);
+    expect(find.text('Не удалось воспроизвести видео'), findsNothing);
+    await tester.tap(find.byTooltip('Смотреть'));
+    await tester.pump();
+    h.router.push('/cover');
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 30));
+    expect(player.closed, isTrue);
+    expect(h.players, hasLength(1));
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
+  testWidgets(
+    'native failure diagnostics do not include the original exception',
+    (tester) async {
+      final gate = Completer<void>();
+      final h = await _mount(
+        tester,
+        _VideoApi(),
+        initializeGate: gate,
+        settle: false,
+        size: const Size(320, 640),
+        textScale: 1.3,
+      );
+      for (var i = 0; i < 5 && h.players.isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      gate.completeError(
+        StateError('https://private.invalid/video?token=secret'),
+      );
+      await tester.pumpAndSettle();
+      await _tap(tester, 'Сведения об ошибке');
+      expect(
+        find.text('Ролик: cat\nЭтап: initialization\nКод: player_error'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('private.invalid'), findsNothing);
+      expect(find.textContaining('secret'), findsNothing);
+      expect(h.players.single.closed, isTrue);
+      expect(tester.takeException(), isNull);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'route cover and return before a frame restore the player without losing pause intent',
+    (tester) async {
+      final visibility = ValueNotifier(true);
+      addTearDown(visibility.dispose);
+      final h = await _mount(
+        tester,
+        _VideoApi(),
+        surfaceVisibility: visibility,
+      );
+      final original = h.players.single;
+      visibility.value = false;
+      visibility.value = true;
+      await tester.pumpAndSettle();
+      expect(original.closed, isTrue);
+      expect(h.players, hasLength(2));
+      expect(h.players.last.playing, isTrue);
+      await tester.tap(find.byTooltip('Пауза'));
+      await tester.pumpAndSettle();
+      visibility.value = false;
+      visibility.value = true;
+      await tester.pumpAndSettle();
+      expect(h.players, hasLength(3));
+      expect(h.players.last.playing, isFalse);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets('mute initialization has the same total deadline as loading', (
+    tester,
+  ) async {
+    final gate = Completer<void>();
+    final h = await _mount(tester, _VideoApi(), muteGate: gate, settle: false);
+    for (var i = 0; i < 5 && h.players.isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await tester.pump(const Duration(seconds: 21));
+    await tester.pumpAndSettle();
+    expect(find.text('Не удалось воспроизвести видео'), findsOneWidget);
+    expect(h.players.single.closed, isTrue);
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(h.players.single.playCalls, 0);
+    await _tap(tester, 'Повторить видео');
+    expect(h.players.last.playing, isTrue);
+    await _unmount(tester);
+  });
+
+  testWidgets(
+    'sound changed during initial mute is synchronized before the first play',
+    (tester) async {
+      final visibility = ValueNotifier(true);
+      final muted = ValueNotifier(false);
+      addTearDown(visibility.dispose);
+      addTearDown(muted.dispose);
+      final gate = Completer<void>();
+      final h = await _mount(
+        tester,
+        _VideoApi(),
+        surfaceVisibility: visibility,
+        surfaceMuted: muted,
+        muteGate: gate,
+        settle: false,
+      );
+      for (
+        var i = 0;
+        i < 5 && (h.players.isEmpty || h.players.single.muteCalls.isEmpty);
+        i++
+      ) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final player = h.players.single;
+      expect(player.muteCalls, [false]);
+      expect(player.playCalls, 0);
+      expect(find.byTooltip('Выключить звук'), findsNothing);
+      muted.value = true;
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(player.muteCalls, [false, true]);
+      expect(player.mutedOnPlay, [true]);
+      expect(player.playing, isTrue);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'stalled play command is bounded and late completion stays silent',
+    (tester) async {
+      final gate = Completer<void>();
+      final h = await _mount(tester, _VideoApi(), playGate: gate);
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pumpAndSettle();
+      expect(find.text('Не удалось воспроизвести видео'), findsOneWidget);
+      expect(h.players.single.closed, isTrue);
+      await _tap(tester, 'Сведения об ошибке');
+      expect(
+        find.text('Ролик: cat\nЭтап: playback\nКод: command_timeout'),
+        findsOneWidget,
+      );
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(h.players.single.playing, isFalse);
+      await _tap(tester, 'Повторить видео');
+      expect(h.players.last.playing, isTrue);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'unconfirmed native cleanup blocks new playback and later completion does not restart it',
+    (tester) async {
+      final h = await _mount(tester, _VideoApi());
+      final old = h.players.single;
+      final closeGate = Completer<void>();
+      old.closeGate = closeGate;
+      old.failed = true;
+      old.notifyListeners();
+      await tester.pumpAndSettle();
+      await _tap(tester, 'Повторить видео');
+      await tester.pump(const Duration(seconds: 11));
+      await tester.pumpAndSettle();
+      expect(old.playing, isFalse);
+      expect(find.text('Не удалось воспроизвести видео'), findsOneWidget);
+      expect(h.players.last.playCalls, 0);
+      await _tap(tester, 'Сведения об ошибке');
+      expect(
+        find.textContaining('Этап: cleanup\nКод: not_confirmed'),
+        findsOneWidget,
+      );
+      final count = h.players.length;
+      await _tap(tester, 'Повторить видео');
+      expect(h.players, hasLength(count));
+      closeGate.complete();
+      await tester.pumpAndSettle();
+      expect(h.players.every((player) => !player.playing), isTrue);
+      await _tap(tester, 'Повторить видео');
+      expect(h.players.last.playing, isTrue);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
     'view marks require actual progress and like/save never send a message',
     (tester) async {
       final api = _VideoApi();
@@ -435,6 +738,10 @@ Future<_Harness> _mount(
   double textScale = 1,
   bool settle = true,
   Completer<void>? initializeGate,
+  Completer<void>? muteGate,
+  Completer<void>? playGate,
+  ValueNotifier<bool>? surfaceVisibility,
+  ValueNotifier<bool>? surfaceMuted,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -447,9 +754,34 @@ Future<_Harness> _mount(
   final players = <_FakePlayer>[];
   final capture = GlobalKey();
   final router = GoRouter(
-    initialLocation: '/videos',
+    initialLocation: surfaceVisibility == null ? '/videos' : '/surface',
     observers: [chatRouteObserver],
     routes: [
+      GoRoute(
+        path: '/surface',
+        builder: (_, __) => Consumer(
+          builder: (context, ref, child) {
+            ref.watch(videoAccessProvider);
+            Widget surface(bool muted) => ShortVideoSurface(
+              video: ShortVideo.fromJson(api.videos.first),
+              active: true,
+              muted: muted,
+              routeVisible: surfaceVisibility,
+              onMute: (_) {},
+              onViewed: () {},
+              onSource: () {},
+            );
+            return Scaffold(
+              body: surfaceMuted == null
+                  ? surface(true)
+                  : ValueListenableBuilder<bool>(
+                      valueListenable: surfaceMuted,
+                      builder: (_, muted, __) => surface(muted),
+                    ),
+            );
+          },
+        ),
+      ),
       GoRoute(
         path: '/videos',
         builder: (_, state) => VideoScreen(
@@ -488,6 +820,8 @@ Future<_Harness> _mount(
         ),
         shortVideoPlayerFactoryProvider.overrideWithValue((uri) {
           final p = _FakePlayer(uri, initializeGate);
+          p.muteGate = muteGate;
+          p.playGate = playGate;
           players.add(p);
           return p;
         }),
@@ -520,8 +854,11 @@ class _FakePlayer extends ShortVideoPlayer {
   _FakePlayer(this.uri, this.gate);
   final Uri uri;
   final Completer<void>? gate;
+  Completer<void>? muteGate, playGate, closeGate;
   bool closed = false, isMuted = false;
   int playCalls = 0;
+  final muteCalls = <bool>[];
+  final mutedOnPlay = <bool>[];
   @override
   bool ready = false;
   @override
@@ -546,8 +883,10 @@ class _FakePlayer extends ShortVideoPlayer {
 
   @override
   Future<void> play() async {
+    await playGate?.future;
     if (!closed) {
       playCalls++;
+      mutedOnPlay.add(isMuted);
       playing = true;
       notifyListeners();
     }
@@ -563,6 +902,8 @@ class _FakePlayer extends ShortVideoPlayer {
 
   @override
   Future<void> mute(bool muted) async {
+    muteCalls.add(muted);
+    await muteGate?.future;
     isMuted = muted;
   }
 
@@ -578,6 +919,7 @@ class _FakePlayer extends ShortVideoPlayer {
 
   @override
   Future<void> close() async {
+    await closeGate?.future;
     if (closed) return;
     closed = true;
     playing = false;

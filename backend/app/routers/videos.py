@@ -215,7 +215,13 @@ async def feed(mode: Literal["personal", "shared", "saved"] = "personal",
     else:
         items = [video for video in items if not _state(states.get(video.id)).get("hidden")]
         prefs = await session.get(SharedVideoPreferences, ctx.pair.id) if mode == "shared" else await session.get(VideoPreferences, user.id)
-        items = _rank(items, _topics(prefs), states, seed=ctx.pair.id if mode == "shared" else user.id,
+        # Preserve a non-empty choice even if its last video was disabled.
+        # Falling back to all topics would silently replace the user's choice.
+        topics = json.loads(prefs.topics) if prefs else []
+        selected_topics = set(topics)
+        if selected_topics:
+            items = [video for video in items if selected_topics.intersection(video.topics)]
+        items = _rank(items, topics, states, seed=ctx.pair.id if mode == "shared" else user.id,
                       day=day, personal=mode == "personal")
     return await _collection(session, user, items, states, mode, limit, ctx)
 

@@ -96,6 +96,19 @@ class NativeShortVideoPlayer extends ShortVideoPlayer {
 final shortVideoPlayerFactoryProvider =
     Provider<ShortVideoPlayer Function(Uri)>((_) => NativeShortVideoPlayer.new);
 
+enum _PlaybackFailure {
+  source('source', 'unapproved_source'),
+  initializationTimeout('initialization', 'timeout'),
+  initialization('initialization', 'player_error'),
+  stalled('playback', 'no_progress'),
+  commandTimeout('playback', 'command_timeout'),
+  cleanup('cleanup', 'not_confirmed'),
+  playback('playback', 'player_error');
+
+  const _PlaybackFailure(this.stage, this.code);
+  final String stage, code;
+}
+
 /// Only the current visible page owns a native player. A hidden, locked,
 /// background or covered route closes it, including initialization in flight.
 class ShortVideoSurface extends ConsumerStatefulWidget {
@@ -107,10 +120,14 @@ class ShortVideoSurface extends ConsumerStatefulWidget {
     required this.onMute,
     required this.onViewed,
     required this.onSource,
+    this.suspended = false,
     this.routeVisible,
   });
   final ShortVideo video;
   final bool active, muted;
+  // A scroll gesture pauses the visible clip without discarding its buffer.
+  // Leaving the page/route/session still releases the native player.
+  final bool suspended;
   final ValueChanged<bool> onMute;
   final VoidCallback onViewed, onSource;
   final ValueListenable<bool>? routeVisible;
@@ -122,8 +139,17 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
   late final VideoAccess _access;
   ShortVideoPlayer? _player;
   int _generation = 0;
-  bool _failed = false;
+  _PlaybackFailure? _failure;
+  bool _showDiagnostics = false;
   bool _viewed = false;
+  bool _userPaused = false;
+  bool _playRequested = false;
+  bool _prepared = false;
+  Timer? _progressTimer;
+  Duration? _lastProgress;
+  bool _restoreScheduled = false;
+  bool _cleanupFailed = false;
+  final _unclosedPlayers = <ShortVideoPlayer>{};
   Future<void> _commands = Future<void>.value();
 
   @override
@@ -142,7 +168,25 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
   }
 
   void _routeChanged() {
-    if (widget.routeVisible?.value == false) _release();
+    if (widget.routeVisible?.value == false) {
+      _release();
+    } else if (!_restoreScheduled) {
+      // A route can cover and uncover this page before its next build. In that
+      // case active never changes, so didUpdateWidget cannot restore the player.
+      _restoreScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _restoreScheduled = false;
+        if (mounted &&
+            _access.allowed &&
+            widget.active &&
+            widget.routeVisible?.value != false &&
+            _player == null &&
+            _failure == null) {
+          unawaited(_load());
+        }
+      });
+      WidgetsBinding.instance.scheduleFrame();
+    }
   }
 
   @override
@@ -155,10 +199,16 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
     if (old.video.mediaUrl != widget.video.mediaUrl ||
         old.active != widget.active) {
       _release();
-      if (old.video.id != widget.video.id) _viewed = false;
+      if (old.video.id != widget.video.id) {
+        _viewed = false;
+        _userPaused = false;
+      }
       if (widget.active) unawaited(_load());
-    } else if (old.muted != widget.muted) {
-      _command((p) => p.mute(widget.muted));
+    } else {
+      if (old.suspended != widget.suspended) _syncPlayback();
+      if (old.muted != widget.muted && _prepared) {
+        _command((p) => p.mute(widget.muted));
+      }
     }
   }
 
@@ -170,27 +220,47 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
       identical(_player, p) &&
       generation == _generation;
   Future<void> _load() async {
+    if (_cleanupFailed && _unclosedPlayers.isNotEmpty) {
+      setState(() => _failure = _PlaybackFailure.cleanup);
+      return;
+    }
     final uri = safeVideoUri(widget.video.mediaUrl);
     if (uri == null) {
-      setState(() => _failed = true);
+      setState(() => _failure = _PlaybackFailure.source);
       return;
     }
     final generation = ++_generation;
     final player = ref.read(shortVideoPlayerFactoryProvider)(uri);
     _player = player;
-    _failed = false;
+    _failure = null;
+    _showDiagnostics = false;
+    _playRequested = false;
+    _prepared = false;
+    _stopWatchdog();
     player.addListener(_changed);
     try {
-      await player.initialize().timeout(const Duration(seconds: 20));
+      await (() async {
+        await player.initialize();
+        while (_current(player, generation)) {
+          final muted = widget.muted;
+          await player.mute(muted);
+          if (!_current(player, generation)) return;
+          // The parent may change sound while the native mute call is pending.
+          // Keep the whole synchronization inside the initialization deadline.
+          if (widget.muted == muted) return;
+        }
+      })().timeout(const Duration(seconds: 20));
       if (!_current(player, generation)) return;
-      await player.mute(widget.muted);
-      if (!_current(player, generation)) return;
-      _command((p) => p.play());
+      _prepared = true;
+      _syncPlayback();
       setState(() {});
+    } on TimeoutException {
+      if (_current(player, generation)) {
+        _fail(_PlaybackFailure.initializationTimeout);
+      }
     } catch (_) {
       if (!_current(player, generation)) return;
-      _release();
-      setState(() => _failed = true);
+      _fail(_PlaybackFailure.initialization);
     }
   }
 
@@ -198,11 +268,13 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
     if (!mounted || !widget.active || !_access.allowed) return;
     final p = _player;
     if (p == null) return;
-    if (p.failed && !_failed) {
-      _release();
-      setState(() => _failed = true);
+    if (p.failed && _failure == null) {
+      _fail(
+        p.ready ? _PlaybackFailure.playback : _PlaybackFailure.initialization,
+      );
       return;
     }
+    _watchProgress(p);
     if (!_viewed &&
         p.playing &&
         !p.buffering &&
@@ -218,31 +290,138 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
     setState(() {});
   }
 
+  bool _atEnd(ShortVideoPlayer p) =>
+      p.duration > Duration.zero && p.position >= p.duration;
+
+  bool get _wantsPlayback => !_userPaused && !widget.suspended;
+
+  void _syncPlayback({bool restart = false}) {
+    final p = _player;
+    if (p == null || !p.ready || !_prepared) return;
+    if (!_wantsPlayback) {
+      _playRequested = false;
+      _stopWatchdog();
+    }
+    final generation = _generation;
+    _command((player) async {
+      if (restart && _wantsPlayback && _atEnd(player)) {
+        _stopWatchdog();
+        await player.seekToStart();
+        if (!_current(player, generation)) return;
+      }
+      if (_wantsPlayback && !_atEnd(player)) {
+        _playRequested = true;
+        _watchProgress(player);
+        await player.play();
+      } else {
+        _playRequested = false;
+        _stopWatchdog();
+        await player.pause();
+      }
+    });
+  }
+
+  void _stopWatchdog() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    _lastProgress = null;
+  }
+
+  void _watchProgress(ShortVideoPlayer p) {
+    if (!_playRequested || !_wantsPlayback || !p.ready || _atEnd(p)) {
+      _stopWatchdog();
+      return;
+    }
+    if (_progressTimer != null &&
+        _lastProgress != null &&
+        p.position <= _lastProgress!) {
+      return;
+    }
+    _progressTimer?.cancel();
+    _lastProgress = p.position;
+    final generation = _generation;
+    _progressTimer = Timer(const Duration(seconds: 20), () {
+      if (!_current(p, generation)) return;
+      if (!_playRequested || !_wantsPlayback) {
+        _stopWatchdog();
+        return;
+      }
+      if (_atEnd(p) || p.position > _lastProgress!) {
+        _progressTimer = null;
+        _watchProgress(p);
+        return;
+      }
+      _fail(_PlaybackFailure.stalled);
+    });
+  }
+
+  void _fail(_PlaybackFailure failure) {
+    _release();
+    setState(() {
+      _failure = failure;
+      _showDiagnostics = false;
+    });
+  }
+
   void _command(Future<void> Function(ShortVideoPlayer) action) {
     final player = _player;
     final generation = _generation;
     if (player == null) return;
     _commands = _commands
         .then((_) async {
-          if (_current(player, generation)) await action(player);
+          if (!_current(player, generation)) return;
+          if (_unclosedPlayers.isNotEmpty) {
+            _fail(_PlaybackFailure.cleanup);
+            return;
+          }
+          await action(player).timeout(const Duration(seconds: 10));
         })
-        .catchError((Object _) {
+        .catchError((Object error) {
           if (_current(player, generation)) {
-            _release();
-            setState(() => _failed = true);
+            _fail(
+              error is TimeoutException
+                  ? _PlaybackFailure.commandTimeout
+                  : _PlaybackFailure.playback,
+            );
           }
         });
   }
 
   void _release() {
     ++_generation;
+    _playRequested = false;
+    _prepared = false;
+    _stopWatchdog();
     final old = _player;
     _player = null;
     if (old == null) return;
     old.removeListener(_changed);
+    _unclosedPlayers.add(old);
     // Stop immediately; close remains ordered after an already issued command.
-    unawaited(old.pause().catchError((Object _) {}));
-    _commands = _commands.then((_) => old.close()).catchError((Object _) {});
+    unawaited(
+      old
+          .pause()
+          .timeout(const Duration(seconds: 10))
+          .catchError((Object _) {}),
+    );
+    _commands = _commands
+        .then((_) async {
+          final closing = old.close();
+          // A late cleanup acknowledgement may enable a later explicit retry, but
+          // it never starts playback. No new player may play before this succeeds.
+          unawaited(
+            closing
+                .then((_) {
+                  _unclosedPlayers.remove(old);
+                  if (_unclosedPlayers.isEmpty) _cleanupFailed = false;
+                })
+                .catchError((Object _) {}),
+          );
+          await closing.timeout(const Duration(seconds: 10));
+        })
+        .catchError((Object _) {
+          _cleanupFailed = true;
+        });
   }
 
   @override
@@ -257,50 +436,71 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
   Widget build(BuildContext context) {
     final p = _player;
     if (!widget.active) return VideoPoster(video: widget.video);
-    if (_failed) {
+    final failure = _failure;
+    if (failure != null) {
       return ColoredBox(
         color: Colors.black,
         child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.wifi_off_rounded,
-                  size: 34,
-                  color: VColors.muted,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Не удалось воспроизвести видео',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Проверь соединение или открой источник.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: VColors.muted),
-                ),
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() => _failed = false);
-                    unawaited(_load());
-                  },
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Повторить видео'),
-                ),
-                TextButton(
-                  onPressed: widget.onSource,
-                  child: const Text('Открыть источник'),
-                ),
-              ],
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 34,
+                    color: VColors.muted,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Не удалось воспроизвести видео',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Попробуй ещё раз или открой другой ролик.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: VColors.muted),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() => _failure = null);
+                      unawaited(_load());
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Повторить видео'),
+                  ),
+                  TextButton(
+                    onPressed: widget.onSource,
+                    child: const Text('Открыть источник'),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => _showDiagnostics = !_showDiagnostics),
+                    child: Text(
+                      _showDiagnostics
+                          ? 'Скрыть сведения'
+                          : 'Сведения об ошибке',
+                    ),
+                  ),
+                  if (_showDiagnostics)
+                    SelectableText(
+                      'Ролик: ${RegExp(r'^[a-zA-Z0-9_-]{1,64}$').hasMatch(widget.video.id) ? widget.video.id : 'unknown'}\n'
+                      'Этап: ${failure.stage}\nКод: ${failure.code}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: VColors.muted,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       );
     }
-    if (p == null || !p.ready) {
+    if (p == null || !p.ready || !_prepared) {
       return const ColoredBox(
         color: Colors.black,
         child: Center(child: CircularProgressIndicator()),
@@ -318,24 +518,20 @@ class _ShortVideoSurfaceState extends ConsumerState<ShortVideoSurface> {
               child: AspectRatio(aspectRatio: ratio, child: p.buildView()),
             ),
           ),
-          if (p.buffering) const LinearProgressIndicator(minHeight: 2),
+          if (p.buffering && _wantsPlayback)
+            const LinearProgressIndicator(minHeight: 2),
           Row(
             children: [
               IconButton(
-                tooltip: p.playing ? 'Пауза' : 'Смотреть',
-                onPressed: () => _command((p) async {
-                  if (p.playing) {
-                    await p.pause();
-                  } else {
-                    if (p.duration > Duration.zero &&
-                        p.position >= p.duration) {
-                      await p.seekToStart();
-                    }
-                    await p.play();
-                  }
-                }),
+                tooltip: _userPaused || _atEnd(p) ? 'Смотреть' : 'Пауза',
+                onPressed: () {
+                  setState(() => _userPaused = !(_userPaused || _atEnd(p)));
+                  _syncPlayback(restart: true);
+                },
                 icon: Icon(
-                  p.playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  _userPaused || _atEnd(p)
+                      ? Icons.play_arrow_rounded
+                      : Icons.pause_rounded,
                 ),
               ),
               Expanded(

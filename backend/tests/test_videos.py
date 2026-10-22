@@ -89,19 +89,151 @@ async def test_settings_private_shared_explicit_and_stale_revisions_fail_without
         assert (await client.put("/videos/settings/personal", headers=ha, json=body)).status_code == 422
 
 
-async def test_personal_interest_and_watched_day_change_own_ranking_only(client):
+async def test_personal_interest_remains_selected_after_viewing_and_does_not_change_partner_feed(client):
     ha, hb = await make_pair(client)
     shared_before = ids(await get_feed(client, hb, "shared"))
     own_b_before = await get_feed(client, hb)
     await client.put("/videos/settings/personal", headers=ha, json={"topics": ["cooking"], "revision": 0})
     ranked = ids(await get_feed(client, ha))
-    assert ranked[0] == "coffee"
+    assert ranked == ["coffee"]
     assert (await client.post("/videos/coffee/viewed", headers=ha)).json() == {"ok": True}
-    assert ids(await get_feed(client, ha))[-1] == "coffee"
+    assert ids(await get_feed(client, ha)) == ["coffee"]
     assert ids(await get_feed(client, hb, "shared")) == shared_before
     assert await get_feed(client, hb) == own_b_before
     assert ids(await get_feed(client, ha, "shared")) == shared_before
     assert "last_viewed_day" not in (await client.get("/videos/coffee", headers=ha)).text
+
+
+@pytest.mark.parametrize("mode", ["personal", "shared"])
+async def test_selected_topics_form_union_before_limit_and_keep_existing_response_shape(client, catalogue, mode):
+    ha, _ = await make_pair(client)
+    # A video matching both chosen topics is still a single candidate; each
+    # topic also has a video of its own, so intersection filtering would fail.
+    catalogue[0] = catalogue[0].model_copy(update={"topics": ["animals", "travel"]})
+    response = await client.put(f"/videos/settings/{mode}", headers=ha,
+                                json={"topics": ["animals", "travel"], "revision": 0})
+    assert response.status_code == 200
+    assert (await client.patch("/videos/coffee/state", headers=ha,
+                               json={"liked": True, "saved": True})).status_code == 200
+    data = await get_feed(client, ha, mode)
+    assert set(data) == {"items", "mode", "catalogue_revision", "total"}
+    assert data["mode"] == mode and data["total"] == 3
+    assert len(ids(data)) == 3 and set(ids(data)) == {"cat", "dog", "mountains"}
+    assert set(data["items"][0]) == {
+        "id", "title", "description", "author", "source_url", "media_url", "thumbnail_url",
+        "license_name", "license_url", "topics", "language", "duration_seconds", "aspect_ratio",
+        "liked", "saved", "hidden", "plan_card_id",
+    }
+    limited = await client.get("/videos/feed", headers=ha, params={"mode": mode, "limit": 1})
+    assert limited.status_code == 200
+    assert limited.json() == {**data, "items": data["items"][:1]}
+
+
+@pytest.mark.parametrize("mode", ["personal", "shared"])
+async def test_empty_selection_preserves_starter_feed_and_clearing_interests_restores_it(client, mode):
+    ha, _ = await make_pair(client)
+    starter = await get_feed(client, ha, mode)
+    assert starter["total"] == 6
+    chosen = await client.put(f"/videos/settings/{mode}", headers=ha,
+                             json={"topics": ["animals"], "revision": 0})
+    assert chosen.status_code == 200
+    assert set(ids(await get_feed(client, ha, mode))) == {"cat", "dog"}
+    cleared = await client.put(f"/videos/settings/{mode}", headers=ha,
+                              json={"topics": [], "revision": 1})
+    assert cleared.status_code == 200
+    assert await get_feed(client, ha, mode) == starter
+
+
+@pytest.mark.parametrize("mode", ["personal", "shared"])
+async def test_hiding_all_matching_videos_returns_empty_without_affecting_partner(client, mode):
+    ha, hb = await make_pair(client)
+    selected = await client.put(f"/videos/settings/{mode}", headers=ha,
+                               json={"topics": ["animals"], "revision": 0})
+    assert selected.status_code == 200
+    partner_before = await get_feed(client, hb, mode)
+    for video_id in ("cat", "dog"):
+        hidden = await client.patch(f"/videos/{video_id}/state", headers=ha, json={"hidden": True})
+        assert hidden.status_code == 200
+    empty = await get_feed(client, ha, mode)
+    assert empty["items"] == [] and empty["total"] == 0 and empty["mode"] == mode
+    assert await get_feed(client, hb, mode) == partner_before
+    assert (await client.patch("/videos/cat/state", headers=ha, json={"hidden": False})).status_code == 200
+    assert ids(await get_feed(client, ha, mode)) == ["cat"]
+
+
+@pytest.mark.parametrize("mode", ["personal", "shared"])
+async def test_disabling_last_selected_topic_video_does_not_fall_back_to_other_topics(client, catalogue, mode):
+    ha, _ = await make_pair(client)
+    selected = await client.put(f"/videos/settings/{mode}", headers=ha,
+                               json={"topics": ["cooking"], "revision": 0})
+    assert selected.status_code == 200
+    coffee_index = next(i for i, video in enumerate(catalogue) if video.id == "coffee")
+    catalogue[coffee_index] = catalogue[coffee_index].model_copy(update={"active": False})
+    assert "cooking" not in {topic["id"] for topic in content.available_topics()}
+    empty = await get_feed(client, ha, mode)
+    assert empty["items"] == [] and empty["total"] == 0
+    catalogue[coffee_index] = catalogue[coffee_index].model_copy(update={"active": True})
+    assert ids(await get_feed(client, ha, mode)) == ["coffee"]
+
+
+async def test_views_reorder_within_chosen_topics_without_reintroducing_unrelated_videos(client):
+    ha, _ = await make_pair(client)
+    selected = await client.put("/videos/settings/personal", headers=ha,
+                               json={"topics": ["animals"], "revision": 0})
+    assert selected.status_code == 200
+    assert (await client.post("/videos/cat/viewed", headers=ha)).status_code == 200
+    assert ids(await get_feed(client, ha)) == ["dog", "cat"]
+    assert (await client.post("/videos/dog/viewed", headers=ha)).status_code == 200
+    assert set(ids(await get_feed(client, ha))) == {"cat", "dog"}
+
+
+async def test_shared_filter_uses_only_explicit_shared_topics_and_no_private_feedback(client):
+    ha, hb = await make_pair(client)
+    for h, topics in ((ha, ["animals"]), (hb, ["travel"])):
+        selected = await client.put("/videos/settings/personal", headers=h,
+                                   json={"topics": topics, "revision": 0})
+        assert selected.status_code == 200
+    selected = await client.put("/videos/settings/shared", headers=ha,
+                               json={"topics": ["cooking"], "revision": 0})
+    assert selected.status_code == 200
+    assert set(ids(await get_feed(client, ha))) == {"cat", "dog"}
+    partner_personal = await get_feed(client, hb)
+    assert ids(partner_personal) == ["mountains"]
+    for h in (ha, hb):
+        assert ids(await get_feed(client, h, "shared")) == ["coffee"]
+    assert (await client.put("/videos/settings/personal", headers=ha,
+                             json={"topics": ["films"], "revision": 1})).status_code == 200
+    assert (await client.patch("/videos/cat/state", headers=ha,
+                               json={"liked": True, "saved": True})).status_code == 200
+    assert (await client.post("/videos/coffee/viewed", headers=ha)).status_code == 200
+    for h in (ha, hb):
+        assert ids(await get_feed(client, h, "shared")) == ["coffee"]
+    assert await get_feed(client, hb) == partner_personal
+
+
+async def test_selected_interests_do_not_restrict_saved_sent_or_directly_opened_videos(client):
+    ha, hb = await make_pair(client)
+    for h, topics in ((ha, ["travel"]), (hb, ["hobbies"])):
+        assert (await client.put("/videos/settings/personal", headers=h,
+                                json={"topics": topics, "revision": 0})).status_code == 200
+    assert (await client.put("/videos/settings/shared", headers=ha,
+                            json={"topics": ["cooking"], "revision": 0})).status_code == 200
+    assert (await client.patch("/videos/cat/state", headers=ha,
+                              json={"saved": True, "hidden": True})).status_code == 200
+    assert ids(await get_feed(client, ha, "saved")) == ["cat"]
+    assert ids(await get_feed(client, hb, "saved")) == []
+    for h in (ha, hb):
+        assert "cat" not in ids(await get_feed(client, h))
+        assert "cat" not in ids(await get_feed(client, h, "shared"))
+        detail = await client.get("/videos/cat", headers=h)
+        assert detail.status_code == 200 and detail.json()["id"] == "cat"
+    posted = await client.post("/chat", headers=ha,
+                               json={"ref_kind": "video", "ref_id": "cat", "client_message_id": "outside-topics"})
+    assert posted.status_code == 201 and posted.json()["ref_id"] == "cat"
+    for h in (ha, hb):
+        collection = await client.get("/videos/shared", headers=h)
+        assert collection.status_code == 200
+        assert ids(collection.json()) == ["cat"]
 
 
 async def test_explicit_feedback_persists_private_and_hidden_save_can_be_recovered(client):
