@@ -424,3 +424,227 @@ async def test_shipped_catalogue_has_playable_reviewed_entries_not_the_test_fixt
     shipped = content.validate_catalogue(json.loads(content.CATALOGUE_PATH.read_text(encoding="utf-8")))
     assert any(video.active for video in shipped)
     assert len({topic for video in shipped if video.active for topic in video.topics}) >= 4
+
+
+async def test_shipped_platform_metadata_uses_canonical_players_and_distinct_stable_ids():
+    # The fixture cannot catch a missing file in the image or invalid real
+    # metadata. This validates the shipped entries; it makes no playback claim.
+    shipped = content.validate_catalogue(json.loads(content.PLATFORM_CATALOGUE_PATH.read_text(encoding="utf-8")))
+    legacy = content.validate_catalogue(json.loads(content.CATALOGUE_PATH.read_text(encoding="utf-8")))
+    assert shipped and any(video.active for video in shipped)
+    assert {video.id for video in shipped}.isdisjoint(video.id for video in legacy)
+    assert all(video.playback_kind == "rutube_embed" for video in shipped)
+    assert all(video.embed_url == f"https://rutube.ru/play/embed/{video.provider_video_id}" for video in shipped)
+    assert all(video.media_url is video.license_name is video.license_url is None for video in shipped)
+    assert len({topic for video in shipped if video.active for topic in video.topics}) >= 4
+
+
+PLATFORM = {"playback": "platform-v1"}
+
+
+def platform_item(provider_id="1" * 32, topic="cooking", **changes):
+    value = dict(id="rutube-" + provider_id, playback_kind="rutube_embed",
+                 provider_video_id=provider_id, title="Проверенный урок на RUTUBE",
+                 description="Полезный тестовый материал", author="Тестовый автор",
+                 source_url=f"https://rutube.ru/video/{provider_id}/", media_url=None,
+                 thumbnail_url=None, license_name=None, license_url=None,
+                 topics=[topic], language="ru", duration_seconds=400,
+                 aspect_ratio=16 / 9, reviewed_at="2026-10-23", active=True)
+    value.update(changes)
+    return value
+
+
+@pytest.fixture
+def platform_videos(catalogue):
+    additions = list(content.validate_catalogue([
+        platform_item(), platform_item("2" * 32, "hobbies"),
+        platform_item("3" * 32, "science", duration_seconds=60),
+    ]))
+    catalogue.extend(additions)
+    return additions
+
+
+async def platform_feed(client, headers, mode="personal"):
+    response = await client.get("/videos/feed", headers=headers, params={**PLATFORM, "mode": mode})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_platform_feed_uses_only_rutube_and_legacy_shape_is_unchanged(client, platform_videos):
+    h = await login(client, "platform@example.ru")
+    modern = await platform_feed(client, h)
+    assert set(ids(modern)) == {video.id for video in platform_videos}
+    assert modern["total"] == 3
+    for video in modern["items"]:
+        assert video["playback_kind"] == "rutube_embed"
+        assert video["embed_url"] == "https://rutube.ru/play/embed/" + video["provider_video_id"]
+        assert video["source_url"] == "https://rutube.ru/video/" + video["provider_video_id"] + "/"
+        assert video["media_url"] is video["license_name"] is video["license_url"] is None
+    legacy = await get_feed(client, h)
+    assert set(ids(legacy)) == {"cat", "coffee", "mountains", "pottery", "dog", "cartoon"}
+    assert all(isinstance(video["media_url"], str) for video in legacy["items"])
+    assert not any(set(video) & {"playback_kind", "provider_video_id", "embed_url"} for video in legacy["items"])
+    archived = await client.get("/videos/cat", headers=h, params=PLATFORM)
+    assert archived.status_code == 200 and archived.json()["playback_kind"] == "direct"
+    assert archived.json()["embed_url"] is None and archived.json()["provider_video_id"] is None
+
+
+async def test_legacy_cannot_mutate_or_parse_new_provider_without_capability(client, platform_videos):
+    h = await login(client, "old-device@example.ru")
+    video_id = platform_videos[0].id
+    for method, suffix, body in (("GET", "", None), ("PATCH", "/state", {"saved": True}),
+                                 ("POST", "/viewed", None)):
+        response = await client.request(method, f"/videos/{video_id}{suffix}", headers=h, json=body)
+        assert response.status_code == 409 and "обнови" in response.json()["detail"]
+    for path, method, body in (("/videos/feed", "GET", None),
+                               (f"/videos/{video_id}/state", "PATCH", {"saved": True}),
+                               (f"/videos/{video_id}/viewed", "POST", None)):
+        response = await client.request(method, path, headers=h,
+                                         params={"playback": "unreviewed-provider"}, json=body)
+        assert response.status_code == 422
+    async with SessionLocal() as session:
+        assert not (await session.execute(select(VideoState))).scalars().all()
+
+
+async def test_platform_capability_keeps_consent_and_auth_boundaries(client, platform_videos):
+    video_id = platform_videos[0].id
+    assert (await client.get("/videos/feed", params=PLATFORM)).status_code == 401
+    h = await login(client, "platform-no-consent@example.ru", consent=False)
+    assert (await client.get("/videos/settings", headers=h, params=PLATFORM)).status_code == 403
+    assert (await client.patch(f"/videos/{video_id}/state", headers=h, params=PLATFORM,
+                               json={"saved": True})).status_code == 403
+    async with SessionLocal() as session:
+        assert not (await session.execute(select(VideoState))).scalars().all()
+
+
+@pytest.mark.parametrize("mode", ["personal", "shared"])
+async def test_platform_topics_are_strict_and_preserve_unavailable_choices(client, catalogue, platform_videos, mode):
+    ha, _ = await make_pair(client)
+    route = f"/videos/settings/{mode}"
+    field = mode + "_topics"
+    first = await client.put(route, headers=ha, params=PLATFORM,
+                              json={"topics": ["cooking"], "revision": 0})
+    assert first.status_code == 200 and first.json()[field] == ["cooking"]
+    assert ids(await platform_feed(client, ha, mode)) == [platform_videos[0].id]
+    # Withdrawal must not replace the explicitly chosen topic with another
+    # provider or unrelated materials, nor silently erase it in settings.
+    at = next(index for index, video in enumerate(catalogue) if video.id == platform_videos[0].id)
+    catalogue[at] = catalogue[at].model_copy(update={"active": False})
+    assert ids(await platform_feed(client, ha, mode)) == []
+    settings = (await client.get("/videos/settings", headers=ha, params=PLATFORM)).json()
+    assert settings[field] == ["cooking"]
+    assert next(topic for topic in settings["topics"] if topic["id"] == "cooking")["available"] is False
+    # A known topic with no current platform material remains an honest empty
+    # selection, and clearing topics restores only the platform starter feed.
+    empty = await client.put(route, headers=ha, params=PLATFORM,
+                              json={"topics": ["home"], "revision": 1})
+    assert empty.status_code == 200 and empty.json()[field] == ["home"]
+    assert ids(await platform_feed(client, ha, mode)) == []
+    clear = await client.put(route, headers=ha, params=PLATFORM, json={"topics": [], "revision": 2})
+    assert clear.status_code == 200 and clear.json()[field] == []
+    assert set(ids(await platform_feed(client, ha, mode))) == {video.id for video in platform_videos[1:]}
+
+
+async def test_platform_personal_and_shared_settings_remain_separate_and_revision_guarded(client, platform_videos):
+    ha, hb = await make_pair(client)
+    personal = await client.put("/videos/settings/personal", headers=ha, params=PLATFORM,
+                                 json={"topics": ["cooking"], "revision": 0})
+    assert personal.status_code == 200
+    shared = await client.put("/videos/settings/shared", headers=hb, params=PLATFORM,
+                               json={"topics": ["hobbies"], "revision": 0})
+    assert shared.status_code == 200 and shared.json()["shared_revision"] == 1
+    # An older device still observes and uses the same concurrency revision.
+    stale = await client.put("/videos/settings/shared", headers=ha,
+                              json={"topics": ["cooking"], "revision": 0})
+    assert stale.status_code == 409
+    assert ids(await platform_feed(client, ha)) == [platform_videos[0].id]
+    assert ids(await platform_feed(client, ha, "shared")) == [platform_videos[1].id]
+    assert ids(await platform_feed(client, hb, "shared")) == [platform_videos[1].id]
+    assert len(ids(await platform_feed(client, hb))) == 3
+    settings = (await client.get("/videos/settings", headers=hb, params=PLATFORM)).json()
+    assert settings["personal_topics"] == [] and settings["shared_topics"] == ["hobbies"]
+
+
+async def test_platform_saved_and_explicit_shared_collections_preserve_old_references(client, platform_videos):
+    ha, hb = await make_pair(client)
+    video_id = platform_videos[0].id
+    await client.patch("/videos/cat/state", headers=ha, json={"saved": True})
+    patched = await client.patch(f"/videos/{video_id}/state", headers=ha, params=PLATFORM,
+                                  json={"saved": True, "liked": True, "hidden": True})
+    assert patched.status_code == 200 and patched.json()["playback_kind"] == "rutube_embed"
+    assert patched.json()["saved"] and patched.json()["hidden"]
+    assert video_id not in ids(await platform_feed(client, ha))
+    assert set(ids(await platform_feed(client, ha, "saved"))) == {"cat", video_id}
+    assert ids(await get_feed(client, ha, "saved")) == ["cat"]
+    assert ids(await platform_feed(client, hb, "saved")) == []
+    assert (await client.get("/videos/shared", headers=hb, params=PLATFORM)).json()["items"] == []
+    partner = (await client.get(f"/videos/{video_id}", headers=hb, params=PLATFORM)).json()
+    assert not partner["liked"] and not partner["saved"] and not partner["hidden"]
+    sent = await client.post("/chat", headers=ha,
+                              json={"ref_kind": "video", "ref_id": video_id, "ref_title": "forged"})
+    assert sent.status_code == 201 and sent.json()["ref_title"] == platform_videos[0].title
+    await client.post("/chat", headers=hb, json={"ref_kind": "video", "ref_id": "cat"})
+    assert set(ids((await client.get("/videos/shared", headers=hb, params=PLATFORM)).json())) == {"cat", video_id}
+    assert ids((await client.get("/videos/shared", headers=hb)).json()) == ["cat"]
+    hc, _ = await make_pair(client, "third@example.ru", "fourth@example.ru")
+    assert (await client.get("/videos/shared", headers=hc, params=PLATFORM)).json()["items"] == []
+    assert (await client.delete("/chat/" + sent.json()["id"], headers=ha)).status_code == 200
+    assert ids((await client.get("/videos/shared", headers=hb, params=PLATFORM)).json()) == ["cat"]
+    assert set(ids(await platform_feed(client, ha, "saved"))) == {"cat", video_id}
+    unhidden = await client.patch(f"/videos/{video_id}/state", headers=ha, params=PLATFORM, json={"hidden": False})
+    assert unhidden.status_code == 200 and video_id in ids(await platform_feed(client, ha))
+
+
+async def test_platform_viewed_is_daily_and_does_not_reorder_saved_or_leak_to_partner(client, platform_videos):
+    ha, hb = await make_pair(client)
+    video_id = platform_videos[0].id
+    await client.patch(f"/videos/{video_id}/state", headers=ha, params=PLATFORM, json={"saved": True})
+    user_id = await uid(client, ha)
+    async with SessionLocal() as session:
+        before = (await session.get(VideoState, (user_id, video_id))).updated_at
+    for _ in range(2):
+        response = await client.post(f"/videos/{video_id}/viewed", headers=ha, params=PLATFORM)
+        assert response.status_code == 200 and response.json() == {"ok": True}
+    async with SessionLocal() as session:
+        row = await session.get(VideoState, (user_id, video_id))
+        assert row.updated_at == before
+        assert json.loads(row.data)["last_viewed_day"] == "2026-10-22"
+    assert "last_viewed_day" not in (await client.get(f"/videos/{video_id}", headers=hb, params=PLATFORM)).text
+
+
+@pytest.mark.parametrize("field,value", [
+    ("playback_kind", "vk_unreviewed"),
+    ("provider_video_id", "1" * 31),
+    ("provider_video_id", "A" * 32),
+    ("provider_video_id", "1" * 32 + "?secret=1"),
+    ("id", "rutube-" + "2" * 32),
+    ("source_url", "https://rutube.ru.evil.example/video/" + "1" * 32 + "/"),
+    ("source_url", "https://user:password@rutube.ru/video/" + "1" * 32 + "/"),
+    ("source_url", "http://rutube.ru/video/" + "1" * 32 + "/"),
+    ("source_url", "https://rutube.ru/video/" + "1" * 32 + "/?redirect=elsewhere"),
+    ("embed_url", "https://evil.example/player"),
+    ("media_url", "https://rutube.ru/extracted-stream.m3u8"),
+    ("license_name", "CC0"),
+    ("license_url", "https://creativecommons.org/publicdomain/zero/1.0/"),
+    ("thumbnail_url", "https://pic.rutube.ru.evil.example/image.jpg"),
+    ("duration_seconds", 7201),
+])
+async def test_platform_catalogue_rejects_unreviewed_players_and_false_provenance(field, value):
+    data = platform_item()
+    data[field] = value
+    with pytest.raises(ValidationError):
+        content.validate_catalogue([data])
+
+
+async def test_legacy_revision_is_unchanged_by_platform_material_and_new_revision_tracks_it(catalogue):
+    legacy_before = content.catalogue_revision()
+    modern_before = content.catalogue_revision("platform-v1")
+    catalogue.extend(content.validate_catalogue([platform_item()]))
+    assert content.catalogue_revision() == legacy_before
+    assert content.catalogue_revision("platform-v1") != modern_before
+    # Existing clips keep their original maximum; long material is explicit
+    # platform playback and cannot accidentally reach an old native decoder.
+    data = item()
+    data["duration_seconds"] = 181
+    with pytest.raises(ValidationError):
+        content.validate_catalogue([data])

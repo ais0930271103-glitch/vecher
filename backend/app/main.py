@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 settings = get_settings()
 app = FastAPI(
     title="Вечер API",
-    version="0.6.0",
+    version="0.7.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.env != "prod" else None,
     redoc_url=None,

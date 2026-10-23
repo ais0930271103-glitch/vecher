@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/network_diagnostics_screen.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 
@@ -58,6 +59,15 @@ class _EmailScreenState extends ConsumerState<EmailScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/welcome'),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Проверить соединение',
+            icon: const Icon(Icons.network_check),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => const NetworkDiagnosticsScreen(),
+            )),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(

@@ -10,6 +10,8 @@ import '../../core/realtime_provider.dart';
 import '../../core/session_changes.dart';
 import '../today/today_screen.dart' show pairProvider;
 
+const videoPlaybackQuery = <String, String>{'playback': 'platform-v1'};
+
 enum VideoMode {
   personal('Для меня'),
   shared('Для нас'),
@@ -41,24 +43,40 @@ Uri? safeVideoUri(String? value, {bool thumbnail = false}) {
   return uri;
 }
 
-Uri? safeVideoSourceUri(String value, {bool license = false}) {
-  final uri = Uri.tryParse(value);
+Uri? safeVideoSourceUri(String? value, {bool license = false}) {
+  final uri = value == null ? null : Uri.tryParse(value);
   final hosts = license
       ? {
           'creativecommons.org',
           'www.creativecommons.org',
           'commons.wikimedia.org',
         }
-      : {'commons.wikimedia.org'};
+      : {'commons.wikimedia.org', 'rutube.ru'};
   if (uri == null ||
       uri.scheme != 'https' ||
       !hosts.contains(uri.host) ||
       uri.userInfo.isNotEmpty ||
-      uri.hasPort && uri.port != 443) {
+      uri.hasPort && uri.port != 443 ||
+      uri.fragment.isNotEmpty) {
+    return null;
+  }
+  if (uri.host == 'rutube.ru' &&
+      (!RegExp(r'^/video/[0-9a-f]{32}/?$').hasMatch(uri.path) ||
+          uri.hasQuery)) {
     return null;
   }
   return uri;
 }
+
+/// An embed is constructed from one public provider ID, never arbitrary HTML,
+/// a media URL, a session token or a catalogue-supplied script/query string.
+Uri? safeRutubeEmbedUri(String? id) =>
+    id != null && RegExp(r'^[0-9a-f]{32}$').hasMatch(id)
+    ? Uri.https('rutube.ru', '/play/embed/$id', {
+        'autoplay': 'false',
+        'q': 'auto',
+      })
+    : null;
 
 class ShortVideo {
   const ShortVideo({
@@ -74,6 +92,8 @@ class ShortVideo {
     required this.language,
     required this.durationSeconds,
     required this.aspectRatio,
+    this.playbackKind = 'direct',
+    this.providerVideoId,
     this.thumbnailUrl,
     this.planCardId,
     this.liked = false,
@@ -86,34 +106,55 @@ class ShortVideo {
     description: data['description'] as String? ?? '',
     author: data['author'] as String,
     sourceUrl: data['source_url'] as String,
-    mediaUrl: data['media_url'] as String,
+    mediaUrl: data['media_url'] as String?,
     thumbnailUrl: data['thumbnail_url'] as String?,
-    licenseName: data['license_name'] as String,
-    licenseUrl: data['license_url'] as String,
+    licenseName: data['license_name'] as String?,
+    licenseUrl: data['license_url'] as String?,
     topics: (data['topics'] as List).cast<String>(),
     language: data['language'] as String? ?? 'none',
     durationSeconds: (data['duration_seconds'] as num).round(),
     aspectRatio: (data['aspect_ratio'] as num).toDouble(),
+    playbackKind: data['playback_kind'] as String? ?? 'direct',
+    providerVideoId: data['provider_video_id'] as String?,
     planCardId: data['plan_card_id'] as int?,
     liked: data['liked'] == true,
     saved: data['saved'] == true,
     hidden: data['hidden'] == true,
   );
-  final String id, title, description, author, sourceUrl, mediaUrl;
-  final String licenseName, licenseUrl, language;
+  final String id, title, description, author, sourceUrl, language;
+  final String playbackKind;
+  final String? mediaUrl, licenseName, licenseUrl, providerVideoId;
   final List<String> topics;
   final String? thumbnailUrl;
   final int durationSeconds;
   final double aspectRatio;
   final int? planCardId;
   final bool liked, saved, hidden;
+  bool get isRutube => playbackKind == 'rutube_embed';
+  Uri? get rutubeEmbedUri {
+    final uri = safeRutubeEmbedUri(providerVideoId);
+    final source = safeVideoSourceUri(sourceUrl);
+    if (!isRutube ||
+        uri == null ||
+        source?.host != 'rutube.ru' ||
+        source?.path != '/video/$providerVideoId/' ||
+        id != 'rutube-$providerVideoId') {
+      return null;
+    }
+    return uri;
+  }
+
+  String get attribution => isRutube
+      ? '$author · RUTUBE'
+      : [author, licenseName].whereType<String>().join(' · ');
   String get durationLabel =>
       '${durationSeconds ~/ 60}:${(durationSeconds % 60).toString().padLeft(2, '0')}';
 }
 
 class VideoTopic {
-  const VideoTopic(this.id, this.title);
+  const VideoTopic(this.id, this.title, {this.available = true});
   final String id, title;
+  final bool available;
 }
 
 class VideoSettings {
@@ -127,7 +168,13 @@ class VideoSettings {
   });
   factory VideoSettings.fromJson(Map data) => VideoSettings(
     topics: (data['topics'] as List)
-        .map((t) => VideoTopic(t['id'] as String, t['title'] as String))
+        .map(
+          (t) => VideoTopic(
+            t['id'] as String,
+            t['title'] as String,
+            available: t['available'] != false,
+          ),
+        )
         .toList(),
     personalTopics: (data['personal_topics'] as List).cast<String>(),
     sharedTopics: (data['shared_topics'] as List).cast<String>(),
@@ -233,7 +280,11 @@ Future<dynamic> _get(
   });
   final response = await ref
       .read(dioProvider)
-      .get(path, queryParameters: query, cancelToken: request.cancel);
+      .get(
+        path,
+        queryParameters: {...?query, ...videoPlaybackQuery},
+        cancelToken: request.cancel,
+      );
   return request.valid ? response.data : null;
 }
 

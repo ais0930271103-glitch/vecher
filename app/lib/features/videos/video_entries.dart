@@ -35,7 +35,8 @@ class VideoTogetherCard extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Животные, открытия, красивые места и идеи. Найди ролик для себя или отправь своему человеку.',
+          'Рецепты, открытия, практические советы и авторские путешествия. '
+          'Выбери интересные темы для себя или поделись с близким человеком.',
           style: TextStyle(color: VColors.soft, height: 1.4),
         ),
         const SizedBox(height: 12),
@@ -56,7 +57,7 @@ class VideoTogetherCard extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         const Text(
-          'Первая подборка · видео с Wikimedia Commons',
+          'Видео и блоги с RUTUBE · подборка пополняется',
           style: TextStyle(color: VColors.muted, fontSize: 11),
         ),
       ],
@@ -117,7 +118,7 @@ class VideoTodayCard extends ConsumerWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'НА МИНУТКУ',
+                            'ПО ТВОИМ ИНТЕРЕСАМ',
                             style: TextStyle(
                               color: VColors.label,
                               fontSize: 11,
@@ -201,7 +202,7 @@ class VideoChatReference extends ConsumerWidget {
                   ),
                   SizedBox(width: 7),
                   Text(
-                    'Короткое видео',
+                    'Видео',
                     style: TextStyle(color: VColors.label, fontSize: 11),
                   ),
                 ],

@@ -535,7 +535,7 @@ void main() {
       await _tap(tester, 'Смотреть');
       await tester.pump(const Duration(milliseconds: 350));
       await tester.pumpAndSettle();
-      expect(find.text('Короткое видео'), findsOneWidget);
+      expect(find.text('Видео'), findsOneWidget);
       expect(h.players.last.playing, isTrue);
       await _unmount(tester);
     },
@@ -999,6 +999,13 @@ class _VideoApi implements HttpClientAdapter {
   ) async {
     if (stream != null) await stream.drain<void>();
     final path = options.path;
+    if (path.startsWith('/videos')) {
+      expectSync(
+        options.queryParameters['playback'],
+        'platform-v1',
+        reason: 'Every video read and mutation must negotiate its DTO',
+      );
+    }
     if (path.startsWith('/videos') && !supported) {
       return _json({'detail': 'Not Found'}, status: 404);
     }

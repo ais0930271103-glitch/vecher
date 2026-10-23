@@ -9,6 +9,7 @@ import '../../core/api.dart';
 import '../../core/chat_presence.dart';
 import '../../core/theme.dart';
 import '../chat/chat_screen.dart' show openChat;
+import 'rutube_player.dart';
 import 'video_player.dart';
 import 'video_topics.dart';
 import 'videos.dart';
@@ -107,7 +108,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> with RouteAware {
       backgroundColor: VColors.bgDeep,
       appBar: AppBar(
         title: Text(
-          widget.videoId != null ? 'Короткое видео' : 'Короткие видео',
+          widget.videoId != null ? 'Видео' : 'Видео и блоги',
           style: display(20),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -218,13 +219,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> with RouteAware {
                       ),
                     ),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(12, 2, 12, 6),
-              child: Text(
-                'Видео загружаются с Wikimedia Commons',
-                style: TextStyle(color: VColors.muted, fontSize: 10),
-              ),
-            ),
           ],
         ),
       ),
@@ -315,6 +309,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
           .read(dioProvider)
           .patch(
             '/videos/${Uri.encodeComponent(video.id)}/state',
+            queryParameters: videoPlaybackQuery,
             data: change,
             cancelToken: request.cancel,
           );
@@ -374,6 +369,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
             .read(dioProvider)
             .post(
               '/videos/${Uri.encodeComponent(video.id)}/viewed',
+              queryParameters: videoPlaybackQuery,
               cancelToken: request.cancel,
             );
       }
@@ -385,7 +381,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
     }
   }
 
-  Future<void> _external(String value, {bool license = false}) async {
+  Future<void> _external(String? value, {bool license = false}) async {
     final uri = safeVideoSourceUri(value, license: license);
     try {
       if (uri == null ||
@@ -488,30 +484,68 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
                           // Small screens and large system fonts can scroll the details;
                           // the media never stretches/crops a horizontal source.
                           final height = box.maxHeight;
-                          final mediaHeight = (height * 0.55).clamp(
-                            170.0,
-                            540.0,
-                          );
+                          final mediaHeight =
+                              (video.isRutube
+                                      ? (box.maxWidth * 9 / 16).clamp(
+                                          180.0,
+                                          (height * 0.55).clamp(180.0, 540.0),
+                                        )
+                                      : (height * 0.55).clamp(170.0, 540.0))
+                                  .clamp(0.0, height);
                           return Column(
                             children: [
                               SizedBox(
                                 height: mediaHeight,
                                 width: double.infinity,
-                                child: ShortVideoSurface(
-                                  key: ValueKey(video.id),
-                                  video: video,
-                                  routeVisible: widget.visibility,
-                                  active:
-                                      widget.visible &&
-                                      access.allowed &&
-                                      index == _index,
-                                  suspended: _scrolling,
-                                  muted: widget.muted,
-                                  onMute: widget.onMute,
-                                  onViewed: () => unawaited(_viewed(video)),
-                                  onSource: () =>
-                                      unawaited(_external(video.sourceUrl)),
-                                ),
+                                child:
+                                    video.isRutube &&
+                                        (box.maxWidth < 320 ||
+                                            mediaHeight < 180)
+                                    ? Center(
+                                        child: SingleChildScrollView(
+                                          child: TextButton.icon(
+                                            onPressed: () =>
+                                                _external(video.sourceUrl),
+                                            icon: const Icon(Icons.open_in_new),
+                                            label: const Text(
+                                              'Открыть на RUTUBE',
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : video.isRutube
+                                    ? RutubeVideoSurface(
+                                        key: ValueKey(video.id),
+                                        video: video,
+                                        routeVisible: widget.visibility,
+                                        active:
+                                            widget.visible &&
+                                            access.allowed &&
+                                            index == _index,
+                                        suspended: _scrolling,
+                                        onViewed: () =>
+                                            unawaited(_viewed(video)),
+                                        onSource: () => unawaited(
+                                          _external(video.sourceUrl),
+                                        ),
+                                      )
+                                    : ShortVideoSurface(
+                                        key: ValueKey(video.id),
+                                        video: video,
+                                        routeVisible: widget.visibility,
+                                        active:
+                                            widget.visible &&
+                                            access.allowed &&
+                                            index == _index,
+                                        suspended: _scrolling,
+                                        muted: widget.muted,
+                                        onMute: widget.onMute,
+                                        onViewed: () =>
+                                            unawaited(_viewed(video)),
+                                        onSource: () => unawaited(
+                                          _external(video.sourceUrl),
+                                        ),
+                                      ),
                               ),
                               Expanded(
                                 child: SingleChildScrollView(
@@ -622,7 +656,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
                                           ),
                                         ),
                                       Text(
-                                        '${video.author} · ${video.licenseName}',
+                                        '${video.attribution} · ${video.durationLabel}',
                                         style: const TextStyle(
                                           color: VColors.muted,
                                           fontSize: 11,
@@ -634,15 +668,20 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
                                           TextButton(
                                             onPressed: () =>
                                                 _external(video.sourceUrl),
-                                            child: const Text('Источник'),
-                                          ),
-                                          TextButton(
-                                            onPressed: () => _external(
-                                              video.licenseUrl,
-                                              license: true,
+                                            child: Text(
+                                              video.isRutube
+                                                  ? 'Открыть на RUTUBE'
+                                                  : 'Источник',
                                             ),
-                                            child: const Text('Лицензия'),
                                           ),
+                                          if (video.licenseUrl != null)
+                                            TextButton(
+                                              onPressed: () => _external(
+                                                video.licenseUrl,
+                                                license: true,
+                                              ),
+                                              child: const Text('Лицензия'),
+                                            ),
                                         ],
                                       ),
                                       Text(
