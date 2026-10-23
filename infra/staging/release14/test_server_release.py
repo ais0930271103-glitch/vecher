@@ -178,6 +178,9 @@ def test_lab_restore_uses_owned_database_and_streaming_input(tmp_path):
     lab=r.Lab(Docker(),tmp_path/'lab',{'api':IMAGE,'db':IMAGE},keys='ring',helper=helper)
     lab.restore(dump,'vecher_restore')
     assert '--single-transaction' in events[-1] and '--exit-on-error' in events[-1]
+    # PGDATABASE alone leaves pg_restore in SQL-output mode; an explicit
+    # database option is essential to actually apply this archive.
+    assert events[-1][events[-1].index('--dbname')+1]=='vecher_restore'
     assert events[-1][0]=='run' and '--name' in events[-1] and '--label' in events[-1]
     with pytest.raises(r.ReleaseError,match='UNSAFE_DATABASE_NAME'):
         lab.restore(dump,'vecher; DROP DATABASE postgres')
@@ -293,6 +296,34 @@ def test_recovery_refuses_unjournaled_owned_command_before_database_access(relea
         def inspect(self,*_):pytest.fail('Recovery must stop before database work')
     release.docker=Docker()
     with pytest.raises(r.ReleaseError,match='UNJOURNALED_TEMPORARY_CONTAINER'):release.rollback()
+
+
+def test_recovery_pg_restore_explicitly_targets_recovery_database(release):
+    (release.checkpoint/'db.dump').write_bytes(b'archive-placeholder')
+    private_json(release.checkpoint/'fingerprint.json',{'users':{'rows':1,'sha256':'original'}})
+    release.verify_backup=lambda:{'trees':{}}
+    release.live_environment=lambda:{'VECHER_DATABASE_URL':'postgresql+asyncpg://vecher:fake@db:5432/vecher'}
+    commands=[]
+    class Docker:
+        def inspect(self,*_):return {'Image':IMAGE,'State':{'Running':False}}
+        def run(self,*args,**kwargs):return b''
+        def sql(self,*_):return (r.SCHEMA+'\n').encode()
+    release.docker=Docker()
+    def one(command,**kwargs):
+        commands.append(command)
+        if command[0]=='pg_restore':
+            target=command[command.index('--dbname')+1]
+            assert target.startswith('vecher_r14_restore_')
+            assert target==kwargs['env']['PGDATABASE']
+            assert kwargs['input_file'].fileno()>=0
+            assert kwargs['image']==IMAGE
+            return b''
+        return b'{}'
+    release.one_live=one
+    # Deliberately fail fingerprint verification before any database swap or
+    # old API restart; this test exercises only the real recovery command.
+    with pytest.raises(r.ReleaseError,match='RECOVERY_DATA_MISMATCH'):release.rollback()
+    assert len([command for command in commands if command[0]=='pg_restore'])==1
 
 
 @pytest.mark.parametrize('rollback',[False,True])

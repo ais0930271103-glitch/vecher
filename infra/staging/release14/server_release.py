@@ -453,7 +453,7 @@ class Lab:
             # File-backed stdin avoids holding the backup in memory.
             self.one(self.images['db'],{'PGHOST':'db','PGUSER':'vecher','PGPASSWORD':self.password,
                      'PGDATABASE':database,'PGCONNECT_TIMEOUT':'15'},
-                ['pg_restore','--exit-on-error','--single-transaction'],input_file=incoming,timeout=900)
+                ['pg_restore','--exit-on-error','--single-transaction','--dbname',database],input_file=incoming,timeout=900)
 
     def fingerprint(self, image, database):
         return json.loads(self.one(image,self.environment(database),["python","-"],code=FINGERPRINT_CODE))
@@ -896,7 +896,7 @@ class Release:
             client_env={'PGHOST':'db','PGPORT':str(database_url.port or 5432),'PGUSER':'vecher',
                         'PGPASSWORD':unquote(database_url.password),'PGDATABASE':recovered,'PGCONNECT_TIMEOUT':'15'}
             with (self.checkpoint/'db.dump').open('rb') as incoming:
-                self.one_live(['pg_restore','--exit-on-error','--single-transaction'],input_file=incoming,
+                self.one_live(['pg_restore','--exit-on-error','--single-transaction','--dbname',recovered],input_file=incoming,
                               image=self.journal['db_image_id'],env=client_env,timeout=900)
             require(json.loads(self.one_live(['python','-'],code=FINGERPRINT_CODE,image=self.journal['old_api_image_id'],database=recovered))
                     ==load_json(self.checkpoint/'fingerprint.json'),'RECOVERY_DATA_MISMATCH')
