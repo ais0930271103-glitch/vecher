@@ -141,10 +141,13 @@ function Get-VecherPublicJson([string]$Path) {
     return Invoke-RestMethod -Method Get -Uri ($script:VecherOrigin + $Path) -TimeoutSec 30
 }
 
-function Show-VecherPublicStatus {
+function Show-VecherPublicStatus([string]$ExpectedApiVersion = '') {
     $VecherHealth = Get-VecherPublicJson '/health'
     $VecherVersion = Get-VecherPublicJson '/app/version'
     if ($VecherHealth.ok -ne $true -or $VecherHealth.env -cne 'staging') { throw 'Public HTTPS health check failed.' }
+    if ($ExpectedApiVersion -and $VecherHealth.version -cne $ExpectedApiVersion) {
+        throw 'The public HTTPS endpoint is not serving API0.9.0 yet. Keep the server output and inspect -Mode Status before device acceptance.'
+    }
     Write-Host ('PUBLIC_API_VERSION=' + $VecherHealth.version)
     Write-Host ('PUBLIC_APK_VERSION={0} ({1})' -f $VecherVersion.version_name, $VecherVersion.version_code)
     Write-Host ('PUBLIC_APK_SHA256=' + $VecherVersion.sha256)
@@ -215,12 +218,12 @@ if ($Mode -in @('Prepare', 'Server', 'Status', 'DisableBlogs')) {
     }
     if ($Mode -eq 'DisableBlogs') {
         Invoke-VecherServerAction 'disable-blogs'
-        Show-VecherPublicStatus
+        Show-VecherPublicStatus '0.9.0'
         return
     }
     Invoke-VecherServerAction 'deploy'
     Invoke-VecherServerAction 'enable-blogs'
-    Show-VecherPublicStatus
+    Show-VecherPublicStatus '0.9.0'
     Write-Host 'VECHER_SERVER14_PREPARED_FOR_DEVICE_ACCEPTANCE'
     if ($Mode -eq 'Server') { return }
 }

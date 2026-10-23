@@ -60,7 +60,7 @@ class EntrypointTests(unittest.TestCase):
             def do_GET(self):
                 path = urlsplit(self.path).path
                 if path == '/health':
-                    body = json.dumps({'ok': True, 'env': 'staging', 'version': '0.9.0'}).encode()
+                    body = json.dumps({'ok': True, 'env': 'staging', 'version': outer.cfg.get('public_api_version', '0.9.0')}).encode()
                 elif path == '/app/version':
                     body = json.dumps({**outer.metadata, **outer.cfg.get('public_metadata', {})}).encode()
                 elif path == '/download/vecher.apk':
@@ -167,6 +167,11 @@ Write-Host ('FIXTURE_LEAF_OK=' + $Mode)
 
     def test_enable_failure_stops_build(self):
         self.cfg['fail_action'] = 'enable-blogs'
+        self.assertNotEqual(self.run_mode('Prepare').returncode, 0)
+        self.assertFalse(any(e['tool'] == 'leaf' for e in self.events()))
+
+    def test_old_public_api_stops_build_after_internal_deploy(self):
+        self.cfg['public_api_version'] = '0.8.0'
         self.assertNotEqual(self.run_mode('Prepare').returncode, 0)
         self.assertFalse(any(e['tool'] == 'leaf' for e in self.events()))
 
