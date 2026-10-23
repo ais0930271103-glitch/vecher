@@ -54,6 +54,12 @@ function Assert-VecherPackage {
         if (-not $VecherSeen.ContainsKey($VecherName)) { throw ('Release package does not bind ' + $VecherName) }
     }
     Write-Host 'RELEASE14_PACKAGE_HASHES_OK'
+    if ($Mode -in @('Prepare', 'Server', 'Build', 'Accept', 'Publish')) {
+        $VecherReadiness = $VecherRecord.PSObject.Properties['ready_for_prepare']
+        if ($null -eq $VecherReadiness -or $VecherReadiness.Value -isnot [bool] -or $VecherReadiness.Value -ne $true) {
+            throw 'This is a review snapshot. Release actions are blocked until the final rehearsal is confirmed. See RELEASE_STATUS.ru.txt. No server action was requested.'
+        }
+    }
 }
 
 function Assert-VecherVerifiedFile([string]$Name) {

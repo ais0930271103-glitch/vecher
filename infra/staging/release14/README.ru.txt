@@ -1,8 +1,16 @@
 ВЕЧЕР — ПОДГОТОВКА ВЫПУСКА 0.9.0 (14)
 
-Этот пакет обновляет тестовый сервер и собирает кандидат APK на том же Windows-
-компьютере, где был выпущен 0.8.0 (13). Подготовка и публикация разделены.
-Команда Prepare НЕ публикует обновление приложения.
+СТАТУС: ИНСТРУМЕНТЫ ГОТОВЫ К PREPARE НА ИСХОДНОМ WINDOWS-КОМПЬЮТЕРЕ.
+Docker/PostgreSQL16-репетиция восстановления, миграции, отката и обработки
+видео завершилась успешно. Подтверждённые результаты и их границы описаны
+в RELEASE_STATUS.ru.txt и release-record.json готового ZIP. В этом ZIP
+ready_for_prepare=true; ранний архив vecher-0.9.0-14-review.zip остаётся
+заблокированным снимком. Используйте готовый vecher-release-0.9.0-14.zip,
+не меняйте флаг или хеши в старом архиве вручную.
+
+Файлы предназначены для обновления тестового сервера и сборки кандидата APK
+на том же Windows-компьютере, где был выпущен 0.8.0 (13). Подготовка и публикация
+разделены. Команда Prepare не публикует обновление приложения.
 
 ИСХОДНЫЕ УСЛОВИЯ
 
@@ -26,7 +34,7 @@ Bypass применяется только к этому процессу. На�
 Если пути отличаются, укажите -RepoPath, -FlutterPath и при необходимости
 -AndroidSdk с существующими каталогами. Пример:
 
-  .\run-release14.ps1 -Mode Build -RepoPath C:\dev\vecher-update -FlutterPath C:\dev\flutter\bin\flutter.bat
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode Build -RepoPath C:\dev\vecher-update -FlutterPath C:\dev\flutter\bin\flutter.bat
 
 Prepare последовательно:
 - проверяет комплект файлов, источник, сервер и исходное состояние выпуска13;
@@ -62,7 +70,7 @@ Prepare последовательно:
 
 После фактически выполненных проверок запустите:
 
-  .\run-release14.ps1 -Mode Accept
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode Accept
 
 Сценарий проверит готовность сервера и попросит явно записать результаты
 проверок на телефонах. Отрицательный ответ или отсутствие ответа не считается
@@ -73,7 +81,7 @@ Accept не публикует обновление. Успешный марке
 
 3. ОПУБЛИКОВАТЬ ПРОВЕРЕННЫЙ APK
 
-  .\run-release14.ps1 -Mode Publish
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode Publish
 
 Publish не пересобирает приложение. Он повторно проверяет сохранённые файлы,
 приёмку, состояние сервера и подпись, затем публикует ровно принятый APK14.
@@ -92,10 +100,15 @@ Publish не пересобирает приложение. Он повторн�
 
 ПРОВЕРКА СОСТОЯНИЯ И ОТДЕЛЬНЫЕ ЭТАПЫ
 
-  .\run-release14.ps1 -Mode Status        # журнал сервера и публичные версии
-  .\run-release14.ps1 -Mode Server        # только сервер, без сборки APK
-  .\run-release14.ps1 -Mode Build         # только локальный кандидат, без публикации
-  .\run-release14.ps1 -Mode DisableBlogs  # отключение блогов с сохранением текущей БД
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode Status
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode Server
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode Build
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-release14.ps1 -Mode DisableBlogs
+
+Status показывает журнал сервера и публичные версии; Server выполняет только
+серверный этап; Build собирает только локальный кандидат; DisableBlogs отключает
+блоги с сохранением текущей БД. Для каждого запуска используется отдельный
+процесс с Bypass, без постоянного изменения политики PowerShell.
 
 При ошибке подготовки серверный журнал различает стадии до и после открытия
 доступа к новому API. До открытия можно восстановить согласованный checkpoint.

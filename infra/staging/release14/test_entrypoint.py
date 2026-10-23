@@ -103,7 +103,7 @@ Write-Host ('FIXTURE_LEAF_OK=' + $Mode)
         (self.package / 'release-apk14.ps1').write_text(leaf)
         for name in ('server_release.py', 'media_rehearsal.py', 'vecher-publish-apk14.py', 'notes-0.9.0.txt'):
             (self.package / name).write_text('NONEXECUTABLE FIXTURE ONLY\n')
-        self.record = {'format': 1, 'source': {'commit': SOURCE},
+        self.record = {'format': 1, 'ready_for_prepare': True, 'source': {'commit': SOURCE},
                        'target': {'version_code': 14, 'version_name': '0.9.0'},
                        'files': [{'path': p.name, 'sha256': digest(p)} for p in self.package.iterdir()]}
         self.write_record()
@@ -148,6 +148,30 @@ Write-Host ('FIXTURE_LEAF_OK=' + $Mode)
     def test_build_is_local_only(self):
         self.assert_ok(self.run_mode('Build'))
         self.assertEqual(self.events(), [{'tool': 'leaf', 'action': 'Build'}])
+
+    def test_unverified_snapshot_stops_before_any_release_action(self):
+        for readiness in (False, None):
+            if readiness is None:
+                self.record.pop('ready_for_prepare', None)
+            else:
+                self.record['ready_for_prepare'] = readiness
+            self.write_record()
+            for mode in ('Prepare', 'Server', 'Build', 'Accept', 'Publish'):
+                with self.subTest(readiness=readiness, mode=mode):
+                    result = self.run_mode(mode)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('review snapshot', result.stderr)
+                    self.assertEqual(self.events(), [])
+
+    def test_unverified_snapshot_keeps_status_and_disable_available(self):
+        self.record['ready_for_prepare'] = False
+        self.write_record()
+        for mode, action in (('Status', 'status'), ('DisableBlogs', 'disable-blogs')):
+            with self.subTest(mode=mode):
+                self.assert_ok(self.run_mode(mode))
+                events = [e['action'] for e in self.events() if e.get('action') not in (None, 'stage', 'upload')]
+                self.assertEqual(events[-1], action)
+                self.assertFalse(any(e.get('action') in ('deploy', 'enable-blogs', 'Build', 'Accept', 'Publish') for e in self.events()))
 
     def test_prepare_orders_deploy_enable_build_without_publish(self):
         result = self.run_mode('Prepare')
