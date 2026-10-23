@@ -25,6 +25,8 @@ USER_TABLES = ((ProfileFact, ProfileFact.user_id), (QuietWish, QuietWish.user_id
 
 async def erase_pair(session: AsyncSession, pair_id: str) -> None:
     """Пара завершена — удаляем всё общее у обоих. Анкеты «о себе» остаются у каждого."""
+    from .blogs import erase_blogs
+    await erase_blogs(session, pair_id=pair_id)
     deliveries = select(DeliveryOutbox.id).where(DeliveryOutbox.pair_id == pair_id)
     await session.execute(delete(DeliveryReceipt).where(DeliveryReceipt.outbox_id.in_(deliveries)))
     await session.execute(delete(DeliveryOutbox).where(DeliveryOutbox.pair_id == pair_id))
@@ -49,6 +51,13 @@ async def erase_user(session: AsyncSession, user: User) -> None:
     )).scalar_one_or_none()
     if pair_id:
         await erase_pair(session, pair_id)
+    from .blogs import erase_blogs
+    await erase_blogs(session, user_id=user.id)
+    # Explicitly erase reporter/consent rows too when SQLite FK enforcement is
+    # absent in a development database; deployed FKs provide the same cascade.
+    from .models import PublicBlogConsent, PublicPostApproval, PublicPostReport
+    for model in (PublicBlogConsent, PublicPostApproval, PublicPostReport):
+        await session.execute(delete(model).where(model.user_id == user.id))
     deliveries = select(DeliveryOutbox.id).where(DeliveryOutbox.user_id == user.id)
     await session.execute(delete(DeliveryReceipt).where(DeliveryReceipt.outbox_id.in_(deliveries)))
     await session.execute(delete(DeliveryOutbox).where(DeliveryOutbox.user_id == user.id))

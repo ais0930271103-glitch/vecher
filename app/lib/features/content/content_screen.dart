@@ -116,6 +116,7 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
         'GET',
         '/content/feed',
         query: {
+          'hosted_video': hostedContentSupported,
           'mode': _mode.name,
           if (settings.unifiedFeed) 'format': _format.name,
           if (_discover) 'discover': true,
@@ -211,6 +212,7 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
       final result = await contentRequest(
         'PATCH',
         '/content/${Uri.encodeComponent(item.id)}/state',
+        query: {'hosted_video': true},
         data: {'hidden': true},
       );
       if (!mounted || result == null) return;
@@ -300,6 +302,15 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
                       : 'Видео, статьи и полезные идеи в одной подборке.',
                   style: const TextStyle(color: VColors.soft, height: 1.5),
                 ),
+                if (current?.publicBlogsEnabled == true)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => context.push('/blogs'),
+                      icon: const Icon(Icons.video_library_outlined, size: 18),
+                      label: const Text('Мои блоги'),
+                    ),
+                  ),
                 const SizedBox(height: 14),
                 if (_mode == ContentMode.saved)
                   Align(

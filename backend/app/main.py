@@ -7,9 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import create_all
-from . import attachments
+from . import attachments, blog_media
 from .body_limits import CallBodyLimitMiddleware
-from .routers import app_update, auth, invite_page, calls, chat, city, content, evenings, places, invites, pairs, plans, push, realtime, settings as settings_router, solo, today, us, videos, wishes
+from .routers import app_update, auth, blogs, invite_page, calls, chat, city, content, evenings, places, invites, pairs, plans, push, realtime, settings as settings_router, solo, today, us, videos, wishes
 from .scheduler import run_forever
 from .outbox import run_forever as run_delivery_worker
 
@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
 settings = get_settings()
 app = FastAPI(
     title="Вечер API",
-    version="0.8.0",
+    version="0.9.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.env != "prod" else None,
     redoc_url=None,
@@ -58,6 +58,8 @@ app.include_router(plans.router)
 app.include_router(evenings.router)
 app.include_router(videos.router)
 app.include_router(content.router)
+app.include_router(blogs.router)
+app.include_router(blog_media.router)
 app.include_router(places.router)
 app.include_router(us.router)
 app.include_router(solo.router)

@@ -16,6 +16,7 @@ services:
       POSTGRES_DB: vecher
     volumes:
       - db-data:/var/lib/postgresql/data
+    networks: [default, media-processing]
     mem_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U vecher"]
@@ -34,6 +35,8 @@ services:
       VECHER_FIREBASE_CREDENTIALS: /run/vecher/firebase-key.json
       VECHER_DOWNLOADS_DIR: /srv/downloads
       VECHER_UPLOADS_DIR: /srv/uploads
+      VECHER_BLOG_MEDIA_DIR: /srv/blog-media
+      VECHER_BLOGS_ENABLED: ${VECHER_BLOGS_ENABLED:-false}
       VECHER_CONTENT_CATALOGUE: /srv/public-content/publications.json
       # Ссылки-приглашения ведут на страницу этого сервера: https://api-test.вечер.online/i/КОД
       VECHER_PUBLIC_URL: https://api-test.xn--b1aga8b7a.online
@@ -43,6 +46,12 @@ services:
       - /opt/vecher-test/downloads:/srv/downloads
       # Приватные вложения: зашифрованные файлы, доступны только через API с авторизацией.
       - /opt/vecher-test/uploads:/srv/uploads
+      # Quarantine/processed public-blog media: never exposed as static files.
+      - type: bind
+        source: /opt/vecher-test/blog-media
+        target: /srv/blog-media
+        bind:
+          create_host_path: false
       # Public editorial snapshots are replaced atomically by the operator.
       # Mount the directory (not one inode), read-only for the API.
       - type: bind
@@ -57,6 +66,49 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s
       retries: 5
+
+  # Explicit opt-in after the schema/storage/backup rehearsal. This worker has
+  # no private uploads, API .env, DATA_KEYS, Firebase or SMTP mount/environment.
+  public-video-worker:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile.media-worker
+    profiles: [public-video]
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      VECHER_ENV: staging
+      VECHER_DATABASE_URL: postgresql+asyncpg://vecher:${POSTGRES_PASSWORD}@db:5432/vecher
+      VECHER_BLOGS_ENABLED: ${VECHER_BLOGS_ENABLED:-false}
+      VECHER_BLOG_MEDIA_DIR: /srv/blog-media
+      VECHER_SCHEDULER_ENABLED: "false"
+      VECHER_OUTBOX_ENABLED: "false"
+      VECHER_BLOG_MEDIA_MAX_BYTES: ${VECHER_BLOG_MEDIA_MAX_BYTES:-104857600}
+      VECHER_BLOG_MEDIA_MAX_SECONDS: ${VECHER_BLOG_MEDIA_MAX_SECONDS:-180}
+      VECHER_BLOG_MEDIA_OUTPUT_MAX_BYTES: ${VECHER_BLOG_MEDIA_OUTPUT_MAX_BYTES:-67108864}
+      VECHER_BLOG_MEDIA_THUMBNAIL_MAX_BYTES: ${VECHER_BLOG_MEDIA_THUMBNAIL_MAX_BYTES:-1048576}
+      VECHER_BLOG_MEDIA_PROCESS_TIMEOUT_SECONDS: ${VECHER_BLOG_MEDIA_PROCESS_TIMEOUT_SECONDS:-300}
+      VECHER_BLOG_MEDIA_PROBE_TIMEOUT_SECONDS: ${VECHER_BLOG_MEDIA_PROBE_TIMEOUT_SECONDS:-20}
+      VECHER_BLOG_MEDIA_LEASE_SECONDS: ${VECHER_BLOG_MEDIA_LEASE_SECONDS:-900}
+      VECHER_BLOG_MEDIA_MAX_ATTEMPTS: ${VECHER_BLOG_MEDIA_MAX_ATTEMPTS:-3}
+      VECHER_BLOG_MEDIA_PENDING_TTL_HOURS: ${VECHER_BLOG_MEDIA_PENDING_TTL_HOURS:-24}
+      VECHER_BLOG_MEDIA_WORKER_POLL_SECONDS: ${VECHER_BLOG_MEDIA_WORKER_POLL_SECONDS:-2}
+    volumes:
+      - type: bind
+        source: /opt/vecher-test/blog-media
+        target: /srv/blog-media
+        bind:
+          create_host_path: false
+    networks: [media-processing]
+    mem_limit: 512m
+    cpus: "1.0"
+    pids_limit: 64
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=16m,mode=1777,noexec,nosuid"]
+    stop_grace_period: 20s
 
   # Включается явно после prepare-realtime.py. API управления доступен только
   # внутри этой Docker-сети на 8001; Caddy публикует лишь WebSocket на 8000.
@@ -81,3 +133,9 @@ services:
 
 volumes:
   db-data:
+
+networks:
+  default:
+  # Worker can reach the DB, but has no Internet route or API/call-service path.
+  media-processing:
+    internal: true

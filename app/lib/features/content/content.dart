@@ -1,9 +1,15 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api.dart';
+import '../newblogs/blog_media.dart';
 import '../videos/videos.dart' show VideoRequest, videoAccessProvider;
+
+// The Android player sends protected media headers. HTML video cannot use the
+// same bearer transport, so the first hosted-content client opts in natively.
+const hostedContentSupported = !kIsWeb;
 
 enum ContentMode {
   personal('Для меня'),
@@ -56,6 +62,8 @@ class ContentSettings {
       followedAuthorIds = (data['followed_author_ids'] as List).cast<String>(),
       hiddenAuthorIds = (data['hidden_author_ids'] as List).cast<String>(),
       unifiedFeed = data['unified_feed'] == true,
+      publicBlogsEnabled =
+          hostedContentSupported && data['public_blogs_enabled'] == true,
       hasPair = data['has_pair'] == true;
   final List<ContentChoice> topics, languages;
   final List<String> personalTopics,
@@ -64,7 +72,7 @@ class ContentSettings {
       hiddenAuthorIds;
   final String personalLanguage, sharedLanguage;
   final int personalRevision, sharedRevision;
-  final bool hasPair, unifiedFeed;
+  final bool hasPair, unifiedFeed, publicBlogsEnabled;
 }
 
 class ContentAuthor {
@@ -72,11 +80,12 @@ class ContentAuthor {
     : id = data['id'] as String,
       name = data['name'] as String,
       bio = data['bio'] as String? ?? '',
+      kind = data['kind'] as String? ?? 'editorial',
       url = data['url'] as String?,
       publishedCount = data['published_count'] as int? ?? 0,
       followed = data['followed'] == true,
       hidden = data['hidden'] == true;
-  final String id, name, bio;
+  final String id, name, bio, kind;
   final String? url;
   final int publishedCount;
   final bool followed, hidden;
@@ -120,6 +129,9 @@ class Publication {
       seriesOrder = data['series_order'] as int?,
       readingMinutes = data['reading_minutes'] as int,
       videoId = data['video_id'] as String?,
+      hostedMedia = data['playback_kind'] == 'hosted' && data['media'] is Map
+          ? BlogMedia.fromJson(data['media'] as Map)
+          : null,
       durationSeconds = (data['duration_seconds'] as num?)?.round(),
       recommendationReason = data['recommendation_reason'] as String?,
       useful = data['useful'] == true,
@@ -136,13 +148,17 @@ class Publication {
   final String? seriesId, seriesTitle, videoId, recommendationReason;
   final int? seriesOrder, durationSeconds;
   final int readingMinutes;
+  final BlogMedia? hostedMedia;
   final bool useful, saved, hidden, authorFollowed, authorHidden;
   String get kindLabel => kind == 'guide'
       ? 'Практикум'
       : kind == 'video'
       ? 'Видео'
       : 'Статья';
-  bool get isVideo => kind == 'video' && videoId != null;
+  bool get isVideo =>
+      kind == 'video' && (videoId != null || hostedMedia != null);
+  bool get isPublicBlog =>
+      author.kind == 'individual' || author.kind == 'couple';
   String get metadataLabel {
     if (kind != 'video') return '$kindLabel · $readingMinutes мин чтения';
     final seconds = durationSeconds;
@@ -152,7 +168,8 @@ class Publication {
     return '$kindLabel · $minutes:$remainder';
   }
 
-  String get openLocation => isVideo
+  String get openLocation =>
+      kind == 'video' && videoId != null && hostedMedia == null
       ? '/videos/${Uri.encodeComponent(videoId!)}'
       : '/content/${Uri.encodeComponent(id)}';
 
@@ -231,7 +248,11 @@ final contentSettingsProvider = FutureProvider.autoDispose<ContentSettings?>((
 });
 final publicationProvider = FutureProvider.autoDispose
     .family<Publication?, String>((ref, id) async {
-      final data = await _get(ref, '/content/${Uri.encodeComponent(id)}');
+      final data = await _get(
+        ref,
+        '/content/${Uri.encodeComponent(id)}',
+        query: {'hosted_video': hostedContentSupported},
+      );
       return data == null ? null : Publication.fromJson(data as Map);
     });
 final contentAuthorProvider = FutureProvider.autoDispose
@@ -258,7 +279,11 @@ final contentPreviewProvider = FutureProvider.autoDispose<Publication?>((
   final data = await _get(
     ref,
     '/content/feed',
-    query: {'mode': 'personal', 'limit': 1},
+    query: {
+      'mode': 'personal',
+      'limit': 1,
+      'hosted_video': hostedContentSupported,
+    },
   );
   return data == null
       ? null

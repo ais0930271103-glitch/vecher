@@ -320,8 +320,7 @@ class _EveningScreenState extends ConsumerState<EveningScreen> {
       if (!mounted || !request.valid) return;
       if (e is DioException && e.response?.statusCode == 409) {
         invalidateEvenings(ref);
-        _error =
-            'Вечер уже изменился на другом телефоне. Обновили шаги — выбери действие ещё раз.';
+        _error = 'Вечер уже изменился на другом телефоне. Обновили шаги — выбери действие ещё раз.';
       } else {
         _error = errorText(e);
         if (e is DioException &&
@@ -638,6 +637,24 @@ class _EveningScreenState extends ConsumerState<EveningScreen> {
                 'Можно пропустить всё, что кому-то из вас не подходит.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: VColors.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        )
+      else if (evening.steps.isEmpty)
+        const _EveningCard(
+          child: Column(
+            children: [
+              Icon(Icons.wb_twilight_outlined, size: 42, color: VColors.gold),
+              SizedBox(height: 10),
+              Text(
+                'Вечер в вашем ритме',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w600),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'В этом варианте нет отдельных шагов. Следуйте описанию и завершите вечер, когда будете готовы сохранить его в истории.',
+                style: TextStyle(color: VColors.soft),
               ),
             ],
           ),

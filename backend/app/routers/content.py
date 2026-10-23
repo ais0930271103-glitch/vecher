@@ -17,11 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import content_catalogue as content, content_analysis, recommendations, video_catalogue
+from .. import blogs, content_catalogue as content, content_analysis, recommendations, video_catalogue
 from ..config import get_settings
 from ..db import get_session
 from ..deps import PairContext, active_pair, consented_user
-from ..models import (ContentPreferences, ContentState, Pair, PairMember,
+from ..models import (ContentPreferences, ContentState, Pair, PairMember, PublicPostReport,
                       SharedContentPreferences, SharedVideoPreferences, User,
                       VideoPreferences, VideoState, utcnow)
 from ..pair_lock import pair_lock
@@ -69,6 +69,11 @@ class AuthorStateIn(ExplicitState):
     hidden: Annotated[bool | None, Field(strict=True)] = None
 
 
+class ReportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: Literal["rights", "privacy", "unsafe", "spam", "other"]
+
+
 def _snapshot() -> content.Catalogue:
     try:
         return recommendations.with_reviewed_videos(content.catalogue())
@@ -78,13 +83,18 @@ def _snapshot() -> content.Catalogue:
         raise HTTPException(503, "Подборка временно недоступна. Попробуй обновить позже") from None
 
 
+async def _reader_snapshot(session: AsyncSession, *, hosted_video: bool = False):
+    return await blogs.with_public_blogs(session, _snapshot(), hosted_video=hosted_video)
+
+
 def _available(snapshot: content.Catalogue, *, deduplicate: bool = True) -> list[content.Publication]:
     items = content.published(snapshot)
     if any(item.kind == "video" for item in items):
         # The bridge uses the already reviewed catalogue. Existing /videos,
         # player IDs and private feedback remain available to older clients.
         videos = {video.id for video in video_catalogue.catalogue() if video.active}
-        items = [item for item in items if item.kind != "video" or item.video_id in videos]
+        items = [item for item in items if item.kind != "video" or item.video_id in videos
+                 or isinstance(item, blogs.BlogPublication)]
     return recommendations.unique_items(items) if deduplicate else items
 
 
@@ -201,7 +211,8 @@ def _video_fingerprint(rows: dict[str, VideoState], relevant_ids: set[str]) -> l
 
 
 def _author_out(author: content.Author, profile: dict, items: list[content.Publication]) -> dict:
-    return {**author.model_dump(), "published_count": sum(item.author_id == author.id for item in items),
+    return {**author.model_dump(), "kind": getattr(author, "kind", "editorial"),
+            "published_count": sum(item.author_id == author.id for item in items),
             "followed": author.id in profile["followed_author_ids"],
             "hidden": author.id in profile["hidden_author_ids"]}
 
@@ -209,7 +220,8 @@ def _author_out(author: content.Author, profile: dict, items: list[content.Publi
 def _out(item: content.Publication, snapshot: content.Catalogue, profile: dict, state: dict,
          reason: str | None = None) -> dict:
     result = item.model_dump(mode="json", exclude={"author_id", "active", "reviewed_at"})
-    result["author"] = _require_author(snapshot, item.author_id).model_dump()
+    author = _require_author(snapshot, item.author_id)
+    result["author"] = {**author.model_dump(), "kind": getattr(author, "kind", "editorial")}
     result.update({key: bool(state.get(key, False)) for key in ("useful", "saved", "hidden")})
     result["author_followed"] = item.author_id in profile["followed_author_ids"]
     result["author_hidden"] = item.author_id in profile["hidden_author_ids"]
@@ -220,6 +232,9 @@ def _out(item: content.Publication, snapshot: content.Catalogue, profile: dict, 
         if video:
             result.update(duration_seconds=round(video.duration_seconds), thumbnail_url=video.thumbnail_url,
                           source_url=video.source_url, playback_kind=video.playback_kind)
+    elif isinstance(item, blogs.BlogPublication):
+        result.update(duration_seconds=item.media.duration_seconds, thumbnail_url=item.media.thumbnail_url,
+                      playback_kind="hosted", source_url=None)
     return result
 
 
@@ -247,6 +262,7 @@ async def _settings(session: AsyncSession, user: User, snapshot: content.Catalog
         "followed_author_ids": private["followed_author_ids"],
         "hidden_author_ids": private["hidden_author_ids"], "has_pair": ctx is not None,
         "catalogue_revision": snapshot.revision, "unified_feed": True,
+        "public_blogs_enabled": blogs.enabled(),
         "recommendation_signals": ["topics", "useful", "saved", "followed_authors", "hidden"],
     }
 
@@ -261,13 +277,13 @@ def _selected(body: SettingsIn, snapshot: content.Catalogue) -> dict:
 
 @router.get("/settings")
 async def settings(user: User = Depends(consented_user), session: AsyncSession = Depends(get_session)):
-    return await _settings(session, user, _snapshot())
+    return await _settings(session, user, await _reader_snapshot(session, hosted_video=True))
 
 
 @router.put("/settings/personal")
 async def personal_settings(body: SettingsIn, user: User = Depends(consented_user),
                             session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=True)
     selected = _selected(body, snapshot)
     async with user_lock(session, user.id):
         row = await session.get(ContentPreferences, user.id, populate_existing=True)
@@ -288,7 +304,7 @@ async def personal_settings(body: SettingsIn, user: User = Depends(consented_use
 @router.put("/settings/shared")
 async def shared_settings(body: SettingsIn, ctx: PairContext = Depends(active_pair),
                           session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=True)
     selected = _selected(body, snapshot)
     async with pair_lock(session, ctx.pair.id):
         row = await session.get(SharedContentPreferences, ctx.pair.id, populate_existing=True)
@@ -350,17 +366,18 @@ def _search(item: content.Publication, snapshot: content.Catalogue, query: str) 
 async def feed(mode: Mode = "personal", limit: int = Query(20, ge=1, le=50),
                cursor: str | None = Query(None, max_length=2048), q: str = Query("", max_length=120),
                author_id: Identifier | None = None, series_id: Identifier | None = None,
-               format: Format = "all", discover: bool = False,
+               format: Format = "all", discover: bool = False, hosted_video: bool = False,
                user: User = Depends(consented_user), session: AsyncSession = Depends(get_session)):
     if discover and mode != "personal":
         raise HTTPException(422, "Знакомство с темами доступно в личной подборке")
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=hosted_video)
     all_items = _available(snapshot)
     # Old licensed direct clips keep their own saved archive and direct links.
     # New recommendations contain only the reviewed platform video catalogue.
     platform_ids = {video.id for video in video_catalogue.catalogue()
                     if video.active and video.playback_kind == "rutube_embed"}
-    items = [item for item in all_items if item.kind != "video" or item.video_id in platform_ids]
+    items = [item for item in all_items if item.kind != "video" or item.video_id in platform_ids
+             or isinstance(item, blogs.BlogPublication)]
     available_ids = [item.id for item in items]
     if format == "video":
         items = [item for item in items if item.kind == "video"]
@@ -437,7 +454,7 @@ async def feed(mode: Mode = "personal", limit: int = Query(20, ge=1, le=50),
     fingerprint = hashlib.sha256(_json({
         "u": user.id, "p": ctx.pair.id if ctx else None, "m": mode, "q": query,
         "a": author_id, "s": series_id, "l": limit, "c": snapshot.revision,
-        "format": format, "discover": discover,
+        "format": format, "discover": discover, "hosted_video": hosted_video,
         "ranker": recommendations.RECOMMENDER_VERSION,
         "analyser": content_analysis.ANALYZER_VERSION,
         "embeddings": embedding_revision,
@@ -458,7 +475,7 @@ async def feed(mode: Mode = "personal", limit: int = Query(20, ge=1, le=50),
 
 @router.get("/authors")
 async def authors(user: User = Depends(consented_user), session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=True)
     items = _available(snapshot)
     profile = _profile(await session.get(ContentPreferences, user.id))
     # Explicit author browser includes hidden authors, so hiding is reversible.
@@ -469,7 +486,7 @@ async def authors(user: User = Depends(consented_user), session: AsyncSession = 
 @router.get("/authors/{author_id}")
 async def author(author_id: str, user: User = Depends(consented_user),
                  session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=True)
     return _author_out(_require_author(snapshot, author_id),
                        _profile(await session.get(ContentPreferences, user.id)), _available(snapshot))
 
@@ -477,7 +494,7 @@ async def author(author_id: str, user: User = Depends(consented_user),
 @router.patch("/authors/{author_id}/state")
 async def set_author_state(author_id: str, body: AuthorStateIn, user: User = Depends(consented_user),
                            session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=True)
     author = _require_author(snapshot, author_id)
     async with user_lock(session, user.id):
         row = await session.get(ContentPreferences, user.id, populate_existing=True)
@@ -501,9 +518,9 @@ async def set_author_state(author_id: str, body: AuthorStateIn, user: User = Dep
 
 
 @router.get("/{content_id}")
-async def publication(content_id: str, user: User = Depends(consented_user),
+async def publication(content_id: str, hosted_video: bool = False, user: User = Depends(consented_user),
                       session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=hosted_video)
     item = _require_item(snapshot, content_id)
     return _out(item, snapshot,
                 _profile(await session.get(ContentPreferences, user.id)),
@@ -511,9 +528,9 @@ async def publication(content_id: str, user: User = Depends(consented_user),
 
 
 @router.patch("/{content_id}/state")
-async def set_state(content_id: str, body: StateIn, user: User = Depends(consented_user),
+async def set_state(content_id: str, body: StateIn, hosted_video: bool = False, user: User = Depends(consented_user),
                     session: AsyncSession = Depends(get_session)):
-    snapshot = _snapshot()
+    snapshot = await _reader_snapshot(session, hosted_video=hosted_video)
     item = _require_item(snapshot, content_id)
     async with user_lock(session, user.id):
         if item.video_id:
@@ -561,3 +578,21 @@ async def set_state(content_id: str, body: StateIn, user: User = Depends(consent
             await enqueue_invalidation(session, [user.id], ["solo"])
         await session.commit()
         return _out(item, snapshot, _profile(await session.get(ContentPreferences, user.id)), state)
+
+
+@router.post("/{content_id}/report")
+async def report(content_id: str, body: ReportIn, user: User = Depends(consented_user),
+                 session: AsyncSession = Depends(get_session)):
+    blogs.require_enabled()
+    snapshot = await _reader_snapshot(session, hosted_video=True)
+    item = _require_item(snapshot, content_id)
+    if not isinstance(item, blogs.BlogPublication):
+        raise HTTPException(404, "Публичная публикация автора не найдена")
+    async with user_lock(session, user.id):
+        prior = await session.scalar(select(PublicPostReport.id).where(
+            PublicPostReport.post_id == content_id.removeprefix("post-"), PublicPostReport.user_id == user.id))
+        if prior is None:
+            session.add(PublicPostReport(post_id=content_id.removeprefix("post-"), user_id=user.id, reason=body.reason))
+            await session.commit()
+    # Never return aggregate reports or identify anyone else who reported.
+    return {"ok": True, "can_hide": True}

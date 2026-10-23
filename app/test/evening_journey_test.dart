@@ -124,6 +124,29 @@ void main() {
   );
 
   testWidgets(
+    'a freeform evening is ongoing until the couple explicitly finishes',
+    (tester) async {
+      final api = _EveningAdapter()
+        ..evening = (_fixture()..['steps'] = <Map<String, dynamic>>[]);
+      await _mount(tester, api);
+      expect(find.text('Вечер в вашем ритме'), findsOneWidget);
+      expect(find.textContaining('нет отдельных шагов'), findsOneWidget);
+      expect(find.text('Все шаги пройдены'), findsNothing);
+      expect(api.evening!['status'], 'active');
+      expect(api.posts, isEmpty);
+      await _tap(tester, 'Поставить на паузу');
+      await _tap(tester, 'Возобновить вечер');
+      expect(find.text('Вечер в вашем ритме'), findsOneWidget);
+      await _tap(tester, 'Завершить вечер');
+      await _tap(tester, 'Завершить');
+      expect(api.evening!['status'], 'completed');
+      expect(find.text('Ваш вечер сохранён'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
     'stale revision refreshes steps without silently repeating an action',
     (tester) async {
       final api = _EveningAdapter()

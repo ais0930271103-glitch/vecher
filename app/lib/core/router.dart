@@ -11,6 +11,9 @@ import '../features/content/content_author_screen.dart';
 import '../features/content/content_preferences_screen.dart';
 import '../features/content/content_screen.dart';
 import '../features/content/publication_screen.dart';
+import '../features/newblogs/blog_studio_screen.dart';
+import '../features/newblogs/blog_profile_screen.dart';
+import '../features/newblogs/blog_post_editor_screen.dart';
 import '../features/calls/call_inbox.dart';
 import '../features/calls/call_screen.dart';
 import '../features/auth/code_screen.dart';
@@ -55,6 +58,37 @@ final router = GoRouter(
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(path: '/city', builder: (_, __) => const CityScreen()),
     GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
+    GoRoute(path: '/blogs', builder: (_, __) => const BlogStudioScreen()),
+    GoRoute(
+      path: '/blogs/new',
+      builder: (_, state) => BlogProfileScreen(
+        kind: state.uri.queryParameters['kind'] == 'couple'
+            ? 'couple'
+            : 'individual',
+      ),
+    ),
+    GoRoute(
+      path: '/blogs/:id/profile',
+      builder: (_, state) =>
+          BlogProfileScreen(blogId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/blogs/:id/posts/new',
+      builder: (_, state) =>
+          BlogPostEditorScreen(blogId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/blogs/:id/posts/:postId',
+      builder: (_, state) => BlogPostEditorScreen(
+        blogId: state.pathParameters['id']!,
+        postId: state.pathParameters['postId']!,
+      ),
+    ),
+    GoRoute(
+      path: '/blogs/:id',
+      builder: (_, state) =>
+          BlogStudioScreen(blogId: state.pathParameters['id']!),
+    ),
     GoRoute(
       path: '/content',
       builder: (_, state) => ContentScreen(

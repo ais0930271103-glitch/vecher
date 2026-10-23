@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme.dart';
+import '../newblogs/hosted_content_video.dart';
 import '../videos/videos.dart' show videoAccessProvider;
 import 'content.dart';
 
@@ -55,6 +56,7 @@ class _ReaderState extends ConsumerState<_Reader>
     with ContentRequests<_Reader> {
   bool _busy = false;
   Object? _error;
+  String? _notice;
 
   Future<void> _change(Map<String, dynamic> state) async {
     if (_busy) return;
@@ -66,6 +68,7 @@ class _ReaderState extends ConsumerState<_Reader>
       final data = await contentRequest(
         'PATCH',
         '/content/${Uri.encodeComponent(widget.item.id)}/state',
+        query: {'hosted_video': true},
         data: state,
       );
       if (!mounted || data == null) return;
@@ -101,6 +104,34 @@ class _ReaderState extends ConsumerState<_Reader>
           _error = 'Не удалось открыть источник.';
         });
       }
+    }
+  }
+
+  Future<void> _report() async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (_) => const _ReportDialog(),
+    );
+    if (!mounted || reason == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _notice = null;
+    });
+    try {
+      final result = await contentRequest(
+        'POST',
+        '/content/${Uri.encodeComponent(widget.item.id)}/report',
+        data: {'reason': reason},
+      );
+      if (!mounted || result == null) return;
+      setState(
+        () => _notice = 'Жалоба отправлена редакции. Если не хочешь видеть это видео, скрой его из своих подборок.',
+      );
+    } catch (e) {
+      if (mounted) setState(() => _error = e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -142,18 +173,27 @@ class _ReaderState extends ConsumerState<_Reader>
             style: const TextStyle(color: VColors.muted, fontSize: 12),
           ),
         const SizedBox(height: 18),
-        SelectableText(
-          item.summary,
-          style: const TextStyle(
-            color: VColors.soft,
-            fontSize: 18,
-            height: 1.55,
+        if (item.hostedMedia != null) ...[
+          HostedContentVideo(
+            key: ValueKey(item.hostedMedia!.id),
+            media: item.hostedMedia!,
           ),
-        ),
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 18),
-          child: Divider(),
-        ),
+          const SizedBox(height: 18),
+        ],
+        if (item.hostedMedia == null || item.blocks.isEmpty) ...[
+          SelectableText(
+            item.summary,
+            style: const TextStyle(
+              color: VColors.soft,
+              fontSize: 18,
+              height: 1.55,
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Divider(),
+          ),
+        ],
         for (final block in item.blocks) _block(block),
         if (item.videoId != null && item.kind == 'video')
           Padding(
@@ -253,6 +293,17 @@ class _ReaderState extends ConsumerState<_Reader>
           icon: const Icon(Icons.chat_bubble_outline),
           label: const Text('Обсудить с партнёром'),
         ),
+        if (item.isPublicBlog)
+          TextButton.icon(
+            onPressed: _busy ? null : _report,
+            icon: const Icon(Icons.flag_outlined, size: 18),
+            label: const Text('Пожаловаться на публикацию'),
+          ),
+        if (_notice != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(_notice!, style: const TextStyle(color: VColors.gold)),
+          ),
         Text(
           hasPair
               ? 'В чат подставятся название и краткое описание. Отправку подтверждаешь ты.'
@@ -334,4 +385,58 @@ class _ReaderState extends ConsumerState<_Reader>
 
   String _date(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}.${value.month.toString().padLeft(2, '0')}.${value.year}';
+}
+
+class _ReportDialog extends StatefulWidget {
+  const _ReportDialog();
+  @override
+  State<_ReportDialog> createState() => _ReportDialogState();
+}
+
+class _ReportDialogState extends State<_ReportDialog> {
+  String? _reason;
+  static const _reasons = {
+    'rights': 'Нарушение авторских прав',
+    'privacy': 'Публикация без согласия / личные данные',
+    'unsafe': 'Неприемлемое или опасное содержание',
+    'spam': 'Спам или реклама',
+    'other': 'Другая причина',
+  };
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Пожаловаться на публикацию'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Жалоба поступит редакции. Автору и партнёру не показывается, кто её отправил.',
+          ),
+          const SizedBox(height: 16),
+          for (final reason in _reasons.entries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: ChoiceChip(
+                label: Text(reason.value),
+                selected: _reason == reason.key,
+                onSelected: (_) => setState(() => _reason = reason.key),
+              ),
+            ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Отмена'),
+      ),
+      FilledButton(
+        onPressed: _reason == null
+            ? null
+            : () => Navigator.pop(context, _reason),
+        child: const Text('Отправить жалобу'),
+      ),
+    ],
+  );
 }
