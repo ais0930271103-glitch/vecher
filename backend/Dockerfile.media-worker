@@ -1,0 +1,20 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /srv
+
+# This dependency is intentionally absent from the 320 MiB HTTP API image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+RUN chmod -R a+rX /srv/app /srv/alembic /srv/alembic.ini \
+    && useradd --create-home --uid 10001 vecher
+USER vecher
+
+# No API server, JWT signing key, private uploads, Firebase or SMTP credentials.
+CMD ["python", "-m", "app.blog_media_worker"]

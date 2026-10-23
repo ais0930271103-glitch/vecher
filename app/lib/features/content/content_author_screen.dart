@@ -199,9 +199,13 @@ class _ContentAuthorHeaderState extends ConsumerState<ContentAuthorHeader>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'АВТОР',
-                      style: TextStyle(
+                    Text(
+                      author.kind == 'couple'
+                          ? 'БЛОГ ПАРЫ'
+                          : author.kind == 'individual'
+                          ? 'ПУБЛИЧНЫЙ БЛОГ'
+                          : 'АВТОР',
+                      style: const TextStyle(
                         color: VColors.gold,
                         letterSpacing: 1.2,
                         fontSize: 12,

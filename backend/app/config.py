@@ -62,6 +62,30 @@ class Settings(BaseSettings):
     attachment_max_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     attachment_pair_quota_bytes: int = Field(default=250 * 1024 * 1024, ge=1)
     attachment_pending_ttl_hours: int = Field(default=24, ge=1, le=168)
+    # Public blogs are an explicit, opt-in rollout. Their media never shares the
+    # encrypted chat-attachment namespace or its access rules.
+    blogs_enabled: bool = False
+    blog_media_dir: str = "blog-media"
+    blog_media_max_bytes: int = Field(default=100 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    blog_media_max_seconds: int = Field(default=180, ge=1, le=180)
+    blog_media_output_max_bytes: int = Field(default=64 * 1024 * 1024, ge=1024, le=64 * 1024 * 1024)
+    blog_media_thumbnail_max_bytes: int = Field(default=1024 * 1024, ge=1024, le=2 * 1024 * 1024)
+    blog_media_blog_quota_bytes: int = Field(default=512 * 1024 * 1024, ge=1)
+    blog_media_global_quota_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1)
+    blog_media_max_assets_per_blog: int = Field(default=100, ge=1, le=1000)
+    blog_media_max_assets_global: int = Field(default=500, ge=1, le=500)
+    blog_media_max_pending_per_blog: int = Field(default=2, ge=1, le=4)
+    blog_media_max_pending_global: int = Field(default=16, ge=1, le=100)
+    blog_media_min_free_bytes: int = Field(default=256 * 1024 * 1024, ge=0)
+    blog_media_upload_timeout_seconds: int = Field(default=600, ge=5, le=600)
+    blog_media_process_timeout_seconds: int = Field(default=300, ge=5, le=600)
+    blog_media_probe_timeout_seconds: int = Field(default=20, ge=1, le=60)
+    blog_media_lease_seconds: int = Field(default=900, ge=60, le=1800)
+    blog_media_max_attempts: int = Field(default=3, ge=1, le=5)
+    blog_media_pending_ttl_hours: int = Field(default=24, ge=1, le=168)
+    blog_media_ffmpeg: str = "ffmpeg"
+    blog_media_ffprobe: str = "ffprobe"
+    blog_media_worker_poll_seconds: float = Field(default=2.0, ge=0.1, le=30)
     # Coturn REST credentials: общий секрет только на сервере, клиенту — временный HMAC.
     turn_urls: list[str] = []
     stun_urls: list[str] = []
@@ -82,6 +106,9 @@ class Settings(BaseSettings):
     def _strong_secret_outside_dev(self) -> "Settings":
         if self.env != "dev" and (len(self.jwt_secret) < 32 or "change-me" in self.jwt_secret):
             raise ValueError("VECHER_JWT_SECRET должен быть случайной строкой длиной от 32 символов")
+        if self.blog_media_lease_seconds <= (self.blog_media_process_timeout_seconds
+                                             + 3 * self.blog_media_probe_timeout_seconds + 60):
+            raise ValueError("VECHER_BLOG_MEDIA_LEASE_SECONDS must exceed bounded processing time plus 60s")
         if self.realtime_enabled:
             if len(self.realtime_token_secret) < 32 or self.realtime_token_secret == self.jwt_secret:
                 raise ValueError("VECHER_REALTIME_TOKEN_SECRET: нужен отдельный случайный секрет от 32 символов")

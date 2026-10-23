@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .crypto import Encrypted
@@ -84,6 +84,119 @@ class ContentState(Base):
     data: Mapped[str] = mapped_column(Encrypted())
     revision: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PublicBlog(Base):
+    """An explicitly public identity, never copied from a private profile."""
+    __tablename__ = "public_blogs"
+    __table_args__ = (
+        CheckConstraint("(kind = 'individual' AND owner_user_id IS NOT NULL AND pair_id IS NULL) OR "
+                        "(kind = 'couple' AND owner_user_id IS NULL AND pair_id IS NOT NULL)",
+                        name="ck_public_blog_owner"),
+        UniqueConstraint("created_by_user_id", "client_id", name="uq_public_blog_create"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(16))
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    pair_id: Mapped[str | None] = mapped_column(ForeignKey("pairs.id", ondelete="CASCADE"), unique=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    client_id: Mapped[str] = mapped_column(String(64))
+    creation_hash: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(Encrypted())
+    bio: Mapped[str] = mapped_column(Encrypted())
+    status: Mapped[str] = mapped_column(String(24), default="pending_consent", index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PublicBlogConsent(Base):
+    """Both current members consent to this exact public identity revision."""
+    __tablename__ = "public_blog_consents"
+    blog_id: Mapped[str] = mapped_column(ForeignKey("public_blogs.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    blog_revision: Mapped[int] = mapped_column(Integer)
+    consent_version: Mapped[str] = mapped_column(String(32))
+    accepted: Mapped[bool] = mapped_column(Boolean)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BlogMediaAsset(Base):
+    """Dedicated public-blog upload and durable processing lease; never a chat attachment."""
+    __tablename__ = "blog_media_assets"
+    __table_args__ = (UniqueConstraint("blog_id", "uploader_id", "client_upload_id", name="uq_blog_media_upload"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    blog_id: Mapped[str] = mapped_column(ForeignKey("public_blogs.id", ondelete="CASCADE"), index=True)
+    uploader_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    client_upload_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="uploading", index=True)
+    source_key: Mapped[str] = mapped_column(String(32), unique=True)
+    output_key: Mapped[str | None] = mapped_column(String(32), unique=True)
+    thumbnail_key: Mapped[str | None] = mapped_column(String(32), unique=True)
+    source_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    output_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    thumbnail_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    reserved_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    source_sha256: Mapped[str | None] = mapped_column(String(64))
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    mime: Mapped[str] = mapped_column(String(32), default="video/mp4")
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(64))
+
+
+class PublicPost(Base):
+    """Only reviewed exact revisions become public; drafts remain encrypted."""
+    __tablename__ = "public_posts"
+    __table_args__ = (UniqueConstraint("blog_id", "client_id", name="uq_public_post_create"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    blog_id: Mapped[str] = mapped_column(ForeignKey("public_blogs.id", ondelete="CASCADE"), index=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    client_id: Mapped[str] = mapped_column(String(64))
+    creation_hash: Mapped[str] = mapped_column(String(64))
+    title: Mapped[str] = mapped_column(Encrypted())
+    description: Mapped[str] = mapped_column(Encrypted())
+    topics: Mapped[str] = mapped_column(Encrypted())
+    language: Mapped[str] = mapped_column(String(8))
+    media_id: Mapped[str] = mapped_column(ForeignKey("blog_media_assets.id", ondelete="CASCADE"), index=True)
+    media_sha256: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1)
+    reviewed_revision: Mapped[int | None] = mapped_column(Integer)
+    reviewed_media_sha256: Mapped[str | None] = mapped_column(String(64))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(Encrypted())
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PublicPostApproval(Base):
+    __tablename__ = "public_post_approvals"
+    post_id: Mapped[str] = mapped_column(ForeignKey("public_posts.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    blog_revision: Mapped[int] = mapped_column(Integer)
+    media_sha256: Mapped[str] = mapped_column(String(64))
+    consent_version: Mapped[str] = mapped_column(String(32))
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PublicPostReport(Base):
+    __tablename__ = "public_post_reports"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_public_post_report"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    post_id: Mapped[str] = mapped_column(ForeignKey("public_posts.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    reason: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class LoginCode(Base):

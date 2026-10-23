@@ -46,9 +46,9 @@ async def table_names(engine):
 
 
 async def test_fresh_schema_upgrade_matches_models_and_is_idempotent(migration_db):
-    assert await upgrade(migration_db) == "0005_content"
-    assert await check(migration_db) == "0005_content"
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
+    assert await check(migration_db) == "0006_public_blogs"
+    assert await upgrade(migration_db) == "0006_public_blogs"
     assert await table_names(migration_db) == set(Base.metadata.tables) | {"alembic_version"}
     async with migration_db.connect() as connection:
         columns = await connection.run_sync(lambda c: {name: {x["name"] for x in sa.inspect(c).get_columns(name)}
@@ -67,7 +67,7 @@ async def test_existing_legacy_data_is_adopted_without_recreation(migration_db):
     with pytest.raises(SchemaNotReady):
         await check(migration_db)
     assert "delivery_outbox" not in await table_names(migration_db)
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
     async with migration_db.connect() as connection:
         name = await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'"))
         raw = await connection.scalar(sa.text("SELECT text FROM daily_answers WHERE id='legacy-answer'"))
@@ -117,7 +117,7 @@ async def test_failed_later_revision_rolls_back_baseline_and_plaintext_backfill(
         assert raw == "legacy private answer"
         assert await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'")) == "Saved name"
     monkeypatch.setattr(Operations, "create_table", real_create_table)
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
 
 
 async def test_required_null_legacy_column_is_not_silently_adopted(migration_db):
@@ -175,7 +175,7 @@ async def test_outbox_upgrade_keeps_legacy_plans_and_rejects_old_api_head(migrat
             id=1, deck="home", text="Existing matched card", level="warm", active=True))
         await connection.execute(metadata.tables["plan_unlocks"].insert().values(
             id="old-open", pair_id="legacy-pair", card_id=1, free=False, scheduled_at=now, created_at=now))
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
     async with migration_db.connect() as connection:
         row = (await connection.execute(sa.text("SELECT id, free, scheduled_at FROM plan_unlocks"))).one()
         assert row.id == "old-open" and not row.free and row.scheduled_at
@@ -208,7 +208,7 @@ async def test_failed_evening_revision_rolls_back_to_outbox_without_data_loss(mi
         assert await connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0002_outbox"
         assert await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'")) == "Saved name"
     monkeypatch.setattr(Operations, "create_table", real_create_table)
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
 
 
 async def test_legacy_pair_delete_cascades_new_evening_tables_with_real_foreign_keys(migration_db):
@@ -264,8 +264,8 @@ async def test_video_upgrade_preserves_previous_rows_rejects_old_head_and_old_de
             card_id=1, started_by="legacy-user", option_index=0, mode="together", status="active",
             revision=3, snapshot='{"private":"unchanged"}', progress='["done"]', started_at=now, updated_at=now))
         before = (await connection.execute(sa.text("SELECT snapshot, progress, revision FROM evenings"))).one()
-    assert await upgrade(migration_db) == "0005_content"
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
+    assert await upgrade(migration_db) == "0006_public_blogs"
     async with migration_db.connect() as connection:
         assert (await connection.execute(sa.text("SELECT snapshot, progress, revision FROM evenings"))).one() == before
         assert await connection.scalar(sa.text("SELECT count(*) FROM video_states")) == 0
@@ -312,7 +312,7 @@ async def test_failed_video_revision_rolls_back_to_evenings_with_existing_rows(m
         assert await connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0003_evenings"
         assert await connection.scalar(sa.text("SELECT display_name FROM users WHERE id='legacy-user'")) == "Saved name"
     monkeypatch.setattr(Operations, "create_table", real_create_table)
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
 
 
 async def upgrade_to_videos(engine):
@@ -347,8 +347,8 @@ async def test_content_upgrade_preserves_video_rows_and_old_account_deletion_cas
             before[table] = (await connection.execute(sa.text(f"SELECT * FROM {table}"))).all()
     with pytest.raises(SchemaNotReady):
         await check(migration_db)
-    assert await upgrade(migration_db) == "0005_content"
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
+    assert await upgrade(migration_db) == "0006_public_blogs"
     async with migration_db.connect() as connection:
         for table, rows in before.items():
             assert (await connection.execute(sa.text(f"SELECT * FROM {table}"))).all() == rows
@@ -403,12 +403,108 @@ async def test_failed_content_migration_rolls_back_to_video_release_with_unchang
         assert await connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0004_videos"
         assert await connection.scalar(sa.text("SELECT topics FROM video_preferences")) == raw
     monkeypatch.setattr(Operations, "create_table", real_create_table)
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
 
 
 async def test_content_schema_marker_does_not_hide_missing_content_tables(migration_db):
-    assert await upgrade(migration_db) == "0005_content"
+    assert await upgrade(migration_db) == "0006_public_blogs"
     async with migration_db.begin() as connection:
         await connection.execute(sa.text("DROP TABLE content_states"))
     with pytest.raises(SchemaNotReady, match="marker and tables disagree"):
+        await check(migration_db)
+
+
+async def upgrade_to_content(engine):
+    def run(connection):
+        config = migration_config()
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0005_content")
+    async with engine.begin() as connection:
+        if connection.dialect.name == "sqlite":
+            await connection.exec_driver_sql("BEGIN")
+        await connection.run_sync(run)
+
+
+async def test_public_blogs_upgrade_preserves_private_rows_and_old_sql_deletes_cascade(migration_db, monkeypatch):
+    from app import migrate
+    from app.models import (BlogMediaAsset, ContentPreferences, PublicBlog, PublicBlogConsent,
+                            PublicPost, PublicPostApproval, PublicPostReport)
+
+    await create_legacy(migration_db)
+    await upgrade_to_content(migration_db)
+    now = datetime.now(timezone.utc)
+    async with migration_db.begin() as connection:
+        await connection.execute(ContentPreferences.__table__.insert().values(
+            user_id="legacy-user", data='{"topics":["digital"],"followed_author_ids":["practicum"]}',
+            revision=3, updated_at=now))
+        before = (await connection.execute(sa.text("SELECT * FROM content_preferences"))).all()
+    assert await upgrade(migration_db) == "0006_public_blogs"
+    assert await upgrade(migration_db) == "0006_public_blogs"
+    async with migration_db.connect() as connection:
+        assert (await connection.execute(sa.text("SELECT * FROM content_preferences"))).all() == before
+        if connection.dialect.name == "sqlite":
+            await connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        await connection.commit()
+        async with connection.begin():
+            await connection.execute(PublicBlog.__table__.insert().values(
+                id="joint-blog", kind="couple", pair_id="legacy-pair", created_by_user_id="legacy-user",
+                client_id="request-one", creation_hash="a" * 64, name="Explicit public name", bio="Public bio",
+                status="active", revision=1, created_at=now, updated_at=now))
+            await connection.execute(PublicBlogConsent.__table__.insert().values(
+                blog_id="joint-blog", user_id="legacy-user", blog_revision=1,
+                consent_version="public-blog-v1", accepted=True, updated_at=now))
+            await connection.execute(BlogMediaAsset.__table__.insert().values(
+                id="public-media", blog_id="joint-blog", uploader_id="legacy-user", client_upload_id="upload-one",
+                source_key="a" * 32, status="ready", sha256="b" * 64, output_key="b" * 32,
+                thumbnail_key="c" * 32, source_bytes=5, output_bytes=5, thumbnail_bytes=1, reserved_bytes=6,
+                mime="video/mp4", width=320, height=240, duration_ms=1000, attempts=1, created_at=now, updated_at=now))
+            await connection.execute(PublicPost.__table__.insert().values(
+                id="public-post", blog_id="joint-blog", created_by_user_id="legacy-user", client_id="post-one",
+                creation_hash="c" * 64, title="Public title", description="Draft body", topics='["digital"]',
+                language="ru", media_id="public-media", media_sha256="b" * 64, status="draft", revision=1,
+                created_at=now, updated_at=now))
+            await connection.execute(PublicPostApproval.__table__.insert().values(
+                post_id="public-post", user_id="legacy-user", revision=1, blog_revision=1,
+                media_sha256="b" * 64, consent_version="public-post-v1", approved_at=now))
+            await connection.execute(PublicPostReport.__table__.insert().values(
+                id="report-one", post_id="public-post", user_id="legacy-user", reason="privacy", created_at=now))
+            raw = await connection.scalar(sa.text("SELECT description FROM public_posts"))
+            assert raw.startswith("enc1:") and "Draft body" not in raw
+            await connection.execute(sa.text("DELETE FROM pairs WHERE id='legacy-pair'"))
+            for table in ("public_blogs", "public_blog_consents", "blog_media_assets", "public_posts",
+                          "public_post_approvals", "public_post_reports"):
+                assert await connection.scalar(sa.text(f"SELECT count(*) FROM {table}")) == 0
+            assert (await connection.execute(sa.text("SELECT * FROM content_preferences"))).all() == before
+    monkeypatch.setattr(migrate, "expected_heads", lambda: ("0005_content",))
+    with pytest.raises(SchemaNotReady):
+        await check(migration_db)
+
+
+async def test_failed_public_blogs_migration_rolls_back_to_content_release(migration_db, monkeypatch):
+    await create_legacy(migration_db)
+    await upgrade_to_content(migration_db)
+    before = await table_names(migration_db)
+    create_table = Operations.create_table
+
+    def fail_approvals(self, name, *args, **kwargs):
+        if name == "public_post_approvals":
+            raise RuntimeError("injected failure in public blog migration")
+        return create_table(self, name, *args, **kwargs)
+
+    monkeypatch.setattr(Operations, "create_table", fail_approvals)
+    with pytest.raises(RuntimeError, match="injected failure in public blog migration"):
+        await upgrade(migration_db)
+    assert await table_names(migration_db) == before
+    async with migration_db.connect() as connection:
+        assert await connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0005_content"
+        assert decrypt(await connection.scalar(sa.text("SELECT text FROM daily_answers"))) == "legacy private answer"
+    monkeypatch.setattr(Operations, "create_table", create_table)
+    assert await upgrade(migration_db) == "0006_public_blogs"
+
+
+async def test_public_blog_schema_marker_rejects_missing_approval_table(migration_db):
+    assert await upgrade(migration_db) == "0006_public_blogs"
+    async with migration_db.begin() as connection:
+        await connection.execute(sa.text("DROP TABLE public_post_approvals"))
+    with pytest.raises(SchemaNotReady):
         await check(migration_db)

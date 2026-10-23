@@ -32,10 +32,17 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
       - run: pip install -r requirements-dev.txt
+      - name: Video processing test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: SQLite regression
+        env:
+          VECHER_REQUIRE_MEDIA_TOOLS: "1"
         run: python -m pytest -q
       - name: PostgreSQL16 regression
         env:
+          VECHER_REQUIRE_MEDIA_TOOLS: "1"
           VECHER_TEST_DATABASE_URL: postgresql+asyncpg://vecher_test:local-ci-only@127.0.0.1:5432/vecher_test
           VECHER_OUTBOX_TEST_DATABASE_URL: postgresql+asyncpg://vecher_test:local-ci-only@127.0.0.1:5432/vecher_test
         run: python -m pytest -q
@@ -54,8 +61,12 @@ jobs:
       - name: Compose validation and API image migration
         run: |
           cp ../infra/staging/env.example ../infra/staging/.env
-          POSTGRES_PASSWORD=local-ci-only docker compose -f ../infra/staging/docker-compose.yml --profile realtime config --quiet
+          POSTGRES_PASSWORD=local-ci-only docker compose -f ../infra/staging/docker-compose.yml --profile realtime --profile public-video config --quiet
           docker build -t vecher-api-ci ../backend
           docker run --rm -e VECHER_ENV=dev -e VECHER_DATABASE_URL=sqlite+aiosqlite:////tmp/image-check.db vecher-api-ci python -m app.migrate upgrade
+          docker build -f ../backend/Dockerfile.media-worker -t vecher-media-ci ../backend
+          docker run --rm --entrypoint ffmpeg vecher-media-ci -version
+          docker run --rm --entrypoint ffprobe vecher-media-ci -version
+          docker run -i --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m --memory=512m --cpus=1 --pids-limit=64 --cap-drop=ALL --security-opt=no-new-privileges:true -e VECHER_ENV=dev --entrypoint python vecher-media-ci - < tests/media_image_smoke.py
       - name: Shell syntax
-        run: bash -n ../infra/staging/deploy-realtime.sh ../infra/staging/update.sh ../infra/staging/install.sh
+        run: bash -n ../infra/staging/deploy-realtime.sh ../infra/staging/update.sh ../infra/staging/install.sh ../infra/staging/backup.sh ../infra/staging/prepare-storage.sh
