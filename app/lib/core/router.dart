@@ -55,19 +55,59 @@ final router = GoRouter(
     GoRoute(path: '/consent', builder: (_, __) => const ConsentScreen()),
     GoRoute(path: '/city', builder: (_, __) => const CityScreen()),
     GoRoute(path: '/chat', builder: (_, state) => ChatScreen(attach: state.extra as Map?)),
-    GoRoute(path: '/content', builder: (_, state) => ContentScreen(
-      mode: ContentMode.parse(state.uri.queryParameters['mode']),
-      authorId: state.uri.queryParameters['author_id'],
-      seriesId: state.uri.queryParameters['series_id'],
-      title: state.uri.queryParameters['title'],
-    )),
-    GoRoute(path: '/content/preferences', builder: (_, state) => ContentPreferencesScreen(
-      shared: state.uri.queryParameters['scope'] == 'shared')),
-    GoRoute(path: '/content/authors', builder: (_, __) => const ContentAuthorsScreen()),
-    GoRoute(path: '/content/authors/:id', builder: (_, state) => ContentScreen(authorId: state.pathParameters['id']!)),
-    GoRoute(path: '/content/:id', builder: (_, state) => PublicationScreen(id: state.pathParameters['id']!)),
-    GoRoute(path: '/videos', builder: (_, state) => VideoScreen(mode: VideoMode.parse(state.uri.queryParameters['mode']))),
-    GoRoute(path: '/videos/:id', builder: (_, state) => VideoScreen(videoId: state.pathParameters['id']!)),
+    GoRoute(
+      path: '/content',
+      builder: (_, state) => ContentScreen(
+        mode: ContentMode.parse(state.uri.queryParameters['mode']),
+        format: ContentFormat.parse(state.uri.queryParameters['format']),
+        discover: state.uri.queryParameters['discover'] == 'true',
+        authorId: state.uri.queryParameters['author_id'],
+        seriesId: state.uri.queryParameters['series_id'],
+        title: state.uri.queryParameters['title'],
+      ),
+    ),
+    GoRoute(
+      path: '/content/preferences',
+      builder: (_, state) => ContentPreferencesScreen(
+        shared: state.uri.queryParameters['scope'] == 'shared',
+      ),
+    ),
+    GoRoute(
+      path: '/content/authors',
+      builder: (_, __) => const ContentAuthorsScreen(),
+    ),
+    GoRoute(
+      path: '/content/authors/:id',
+      builder: (_, state) =>
+          ContentScreen(authorId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/content/:id',
+      builder: (_, state) => PublicationScreen(id: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/videos',
+      redirect: (_, state) {
+        final mode = VideoMode.parse(state.uri.queryParameters['mode']);
+        if (mode == VideoMode.personal || mode == VideoMode.shared) {
+          return contentLocation(
+            mode: mode == VideoMode.shared
+                ? ContentMode.shared
+                : ContentMode.personal,
+            format: ContentFormat.video,
+          );
+        }
+        return null;
+      },
+      builder: (_, state) => VideoScreen(
+        mode: VideoMode.parse(state.uri.queryParameters['mode']),
+        legacyOnly: state.uri.queryParameters['legacy'] == 'true',
+      ),
+    ),
+    GoRoute(
+      path: '/videos/:id',
+      builder: (_, state) => VideoScreen(videoId: state.pathParameters['id']!),
+    ),
     GoRoute(path: '/call', builder: (_, __) => const CallScreen()),
     GoRoute(path: '/call/:id', builder: (_, state) => CallScreen(callId: state.pathParameters['id']!)),
     GoRoute(path: '/evenings/:id', builder: (_, state) => EveningScreen(eveningId: state.pathParameters['id']!)),

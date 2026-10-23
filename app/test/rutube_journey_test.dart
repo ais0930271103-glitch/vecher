@@ -333,7 +333,7 @@ void main() {
       expect(find.text('Private fullscreen video'), findsNothing);
       expect(player.fullscreen, isNull);
       expect(player.closed, isFalse);
-      expect(find.text('Видео и блоги'), findsOneWidget);
+      expect(find.text('Видео'), findsOneWidget);
       player.showFullscreen();
       await tester.pumpAndSettle();
       h.router.push('/cover');

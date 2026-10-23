@@ -270,6 +270,7 @@ Future<dynamic> _get(
   Ref ref,
   String path, {
   Map<String, dynamic>? query,
+  bool legacy = false,
 }) async {
   final access = ref.watch(videoAccessProvider);
   if (!access.allowed) return null;
@@ -282,7 +283,11 @@ Future<dynamic> _get(
       .read(dioProvider)
       .get(
         path,
-        queryParameters: {...?query, ...videoPlaybackQuery},
+        queryParameters: {
+          ...?query,
+          ...videoPlaybackQuery,
+          if (legacy) 'playback': 'legacy',
+        },
         cancelToken: request.cancel,
       );
   return request.valid ? response.data : null;
@@ -316,6 +321,21 @@ final shortVideoProvider = FutureProvider.autoDispose
       return data == null ? null : ShortVideo.fromJson(data as Map);
     });
 
+// The archive contains direct clips saved before the unified catalogue.
+// Ask the server for that catalogue so newer platform saves cannot crowd
+// the old clips out of the bounded result page.
+final legacySavedVideoFeedProvider = FutureProvider.autoDispose<VideoFeed>((
+  ref,
+) async {
+  final data = await _get(
+    ref,
+    '/videos/feed',
+    query: {'mode': 'saved', 'limit': 96},
+    legacy: true,
+  );
+  return data == null ? const VideoFeed([]) : VideoFeed.fromJson(data as Map);
+});
+
 final singleVideoFeedProvider = FutureProvider.autoDispose
     .family<VideoFeed, String>((ref, id) async {
       final video = await ref.watch(shortVideoProvider(id).future);
@@ -326,6 +346,7 @@ void invalidateVideos(WidgetRef ref) {
   ref.invalidate(videoFeedProvider);
   ref.invalidate(videoSettingsProvider);
   ref.invalidate(shortVideoProvider);
+  ref.invalidate(legacySavedVideoFeedProvider);
 }
 
 String videoErrorText(Object error, {bool detail = false}) {

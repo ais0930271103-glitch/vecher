@@ -9,10 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import video_catalogue as content
+from .. import content_catalogue as editorial, recommendations, video_catalogue as content
 from ..db import get_session
 from ..deps import PairContext, active_pair, consented_user, has_consent, today_date
-from ..models import (ChatMessage, Pair, PairMember, SharedVideoPreferences, User,
+from ..models import (ChatMessage, ContentState, Pair, PairMember, SharedVideoPreferences, User,
                       VideoPreferences, VideoState, WishCard, utcnow)
 from ..pair_lock import pair_lock
 from ..realtime import enqueue_invalidation, invalidate_pair
@@ -95,18 +95,44 @@ def _require_video(video_id: str, playback: content.Playback = "legacy") -> cont
 
 async def _own_states(session: AsyncSession, user_id: str) -> dict[str, VideoState]:
     rows = (await session.execute(select(VideoState).where(VideoState.user_id == user_id))).scalars()
-    return {row.video_id: row for row in rows}
+    states = {row.video_id: row for row in rows}
+    try:
+        snapshot = editorial.catalogue()
+    except (OSError, ValueError, UnicodeError):
+        return states
+    linked = {item.id: item.video_id for item in snapshot.items if item.video_id is not None}
+    if not linked:
+        return states
+    publications = (await session.execute(select(ContentState).where(
+        ContentState.user_id == user_id, ContentState.content_id.in_(linked)))).scalars().all()
+    groups: dict[str, list[ContentState]] = {}
+    for row in publications:
+        groups.setdefault(linked[row.content_id], []).append(row)
+    for video_id, marks in groups.items():
+        original = states.get(video_id)
+        data = _state(original)
+        effective = recommendations.merge_video_feedback(data, [json.loads(mark.data) for mark in marks])
+        # Detached values only: GET must not assign into an attached ORM row or
+        # flush a migration while merely reading a saved/hidden collection.
+        modified = [mark.updated_at for mark in marks]
+        if original and recommendations.has_explicit_video_feedback(data):
+            modified.append(original.updated_at)
+        states[video_id] = VideoState(user_id=user_id, video_id=video_id,
+                                     data=json.dumps({**data, **effective}), updated_at=max(modified))
+    return states
 
 
 async def _out(session: AsyncSession, video: content.CatalogueVideo, state: dict,
-               ctx: PairContext | None, playback: content.Playback = "legacy") -> dict:
+               ctx: PairContext | None, playback: content.Playback = "legacy", *, user_id: str) -> dict:
     excluded = {"reviewed_at", "active", "plan_deck", "plan_text"}
     if playback == "legacy":
         excluded |= content.PROVIDER_FIELDS
     result = video.model_dump(exclude=excluded)
     if playback == "platform-v1":
         result["embed_url"] = video.embed_url
-    result.update({field: bool(state.get(field, False)) for field in ("liked", "saved", "hidden")})
+    linked, _ = await recommendations.video_publication_states(session, user_id, video.id)
+    effective = recommendations.merge_video_feedback(state, [json.loads(row.data) for row in linked])
+    result.update(effective)
     result["plan_card_id"] = None
     if (ctx and video.plan_text and await has_consent(session, ctx.user.id, ("personal", "special"))):
         # Source identities are text + deck, never guessed autoincrement IDs.
@@ -166,7 +192,8 @@ def _rank(videos: list[content.CatalogueVideo], topics: list[str], states: dict[
 async def _collection(session: AsyncSession, user: User, items: list[content.CatalogueVideo],
                       states: dict[str, VideoState], mode: str, limit: int,
                       ctx: PairContext | None, playback: content.Playback = "legacy") -> dict:
-    return {"items": [await _out(session, video, _state(states.get(video.id)), ctx, playback) for video in items[:limit]],
+    return {"items": [await _out(session, video, _state(states.get(video.id)), ctx, playback, user_id=user.id)
+                      for video in items[:limit]],
             "mode": mode, "catalogue_revision": content.catalogue_revision(playback), "total": len(items)}
 
 
@@ -265,7 +292,7 @@ async def video(video_id: str, user: User = Depends(consented_user), session: As
                 playback: content.Playback = "legacy"):
     item = _require_video(video_id, playback)
     state = await session.get(VideoState, (user.id, video_id))
-    return await _out(session, item, _state(state), await _context(session, user), playback)
+    return await _out(session, item, _state(state), await _context(session, user), playback, user_id=user.id)
 
 
 @router.patch("/{video_id}/state")
@@ -275,19 +302,31 @@ async def set_state(video_id: str, body: StateIn, user: User = Depends(consented
     async with user_lock(session, user.id):
         row = await session.get(VideoState, (user.id, video_id), populate_existing=True)
         data = _state(row)
+        linked, editorial_available = await recommendations.video_publication_states(session, user.id, video_id)
+        effective = recommendations.merge_video_feedback(data, [json.loads(state.data) for state in linked])
         changes = body.model_dump(exclude_unset=True)
-        if any(data.get(key, False) != value for key, value in changes.items()):
+        pending_reconciliation = not editorial_available and not set(changes).issubset(data.get("content_overrides", []))
+        if pending_reconciliation or any(effective[key] != value for key, value in changes.items()):
             data.update(changes)
+            if item.playback_kind == "rutube_embed" or linked or not editorial_available or data.get("content_overrides"):
+                data["content_overrides"] = sorted(set(data.get("content_overrides", [])) | set(changes))
+                data["content_revision"] = int(data.get("content_revision", 0)) + 1
             if row is None:
                 row = VideoState(user_id=user.id, video_id=video_id, data=json.dumps(data))
                 session.add(row)
             else:
                 row.data, row.updated_at = json.dumps(data), utcnow()
+            mapped = {"useful" if key == "liked" else key: value for key, value in changes.items()}
+            for state in linked:
+                old = json.loads(state.data)
+                if any(old.get(key, False) != value for key, value in mapped.items()):
+                    old.update(mapped)
+                    state.data, state.revision, state.updated_at = json.dumps(old), state.revision + 1, utcnow()
             await enqueue_invalidation(session, [user.id], ["solo"])
             await session.commit()
         else:
             await session.commit()
-        return await _out(session, item, data, await _context(session, user), playback)
+        return await _out(session, item, data, await _context(session, user), playback, user_id=user.id)
 
 
 @router.post("/{video_id}/viewed")

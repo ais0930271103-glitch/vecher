@@ -15,7 +15,7 @@ class PublicationScreen extends ConsumerWidget {
     final access = ref.watch(videoAccessProvider);
     if (!access.allowed) return const ContentUnavailable();
     return Scaffold(
-      appBar: AppBar(title: const Text('Читать')),
+      appBar: AppBar(title: const Text('Интересное')),
       body: SafeArea(
         child: ref
             .watch(publicationProvider(id))
@@ -115,10 +115,7 @@ class _ReaderState extends ConsumerState<_Reader>
     return ListView(
       padding: const EdgeInsets.fromLTRB(22, 4, 22, 32),
       children: [
-        Text(
-          '${item.kindLabel} · ${item.readingMinutes} мин',
-          style: const TextStyle(color: VColors.gold),
-        ),
+        Text(item.metadataLabel, style: const TextStyle(color: VColors.gold)),
         const SizedBox(height: 12),
         SelectableText(
           item.title,
@@ -165,7 +162,7 @@ class _ReaderState extends ConsumerState<_Reader>
               onPressed: () =>
                   context.push('/videos/${Uri.encodeComponent(item.videoId!)}'),
               icon: const Icon(Icons.play_arrow),
-              label: const Text('Открыть видео'),
+              label: const Text('Смотреть видео'),
             ),
           ),
         if (item.seriesId != null)
@@ -242,7 +239,7 @@ class _ReaderState extends ConsumerState<_Reader>
         ),
         const SizedBox(height: 8),
         const Text(
-          'Эти отметки видишь только ты. Публичного счётчика нет.',
+          'Эти отметки помогают уточнять личную подборку. Партнёр их не видит.',
           style: TextStyle(color: VColors.muted, fontSize: 12),
         ),
         const SizedBox(height: 24),

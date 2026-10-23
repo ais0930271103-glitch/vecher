@@ -649,6 +649,28 @@ void main() {
     },
   );
 
+  testWidgets(
+    'legacy saved archive negotiates old clips and supports undoing a save',
+    (tester) async {
+      final api = _VideoApi()..allowLegacyArchive = true;
+      api.videos.first['saved'] = true;
+      final h = await _mount(tester, api);
+      h.router.go('/videos?mode=saved&legacy=true');
+      await tester.pumpAndSettle();
+      expect(api.feedQueries.last['playback'], 'legacy');
+      expect(api.feedQueries.last['mode'], 'saved');
+      expect(find.text('Сохранённые прежние видео'), findsOneWidget);
+      expect(find.text('Кот открывает дверь'), findsOneWidget);
+      await _tap(tester, 'Сохранено');
+      expect(api.videos.first['saved'], isFalse);
+      expect(
+        find.textContaining('нет сохранённых роликов из прежней подборки'),
+        findsOneWidget,
+      );
+      await _unmount(tester);
+    },
+  );
+
   testWidgets('late private feed cannot render after account changes', (
     tester,
   ) async {
@@ -786,6 +808,7 @@ Future<_Harness> _mount(
         path: '/videos',
         builder: (_, state) => VideoScreen(
           mode: VideoMode.parse(state.uri.queryParameters['mode']),
+          legacyOnly: state.uri.queryParameters['legacy'] == 'true',
         ),
       ),
       GoRoute(
@@ -976,10 +999,12 @@ class _VideoApi implements HttpClientAdapter {
   List<String> personalTopics = [], sharedTopics = [];
   int personalRevision = 0, sharedRevision = 0;
   bool supported = true, conflictShared = false;
+  bool allowLegacyArchive = false;
   Completer<ResponseBody>? heldFeed;
   final viewed = <String>[];
   final changes = <Map>[];
   final messages = <Map>[];
+  final feedQueries = <Map<String, dynamic>>[];
   Map<String, dynamic> get settings => {
     'topics': [
       {'id': 'animals', 'title': 'Животные'},
@@ -1002,7 +1027,11 @@ class _VideoApi implements HttpClientAdapter {
     if (path.startsWith('/videos')) {
       expectSync(
         options.queryParameters['playback'],
-        'platform-v1',
+        allowLegacyArchive &&
+                path == '/videos/feed' &&
+                options.queryParameters['mode'] == 'saved'
+            ? 'legacy'
+            : 'platform-v1',
         reason: 'Every video read and mutation must negotiate its DTO',
       );
     }
@@ -1012,6 +1041,7 @@ class _VideoApi implements HttpClientAdapter {
     if (options.method == 'GET') {
       if (path == '/videos/settings') return _json(settings);
       if (path == '/videos/feed' || path == '/videos/shared') {
+        feedQueries.add(Map.of(options.queryParameters));
         if (heldFeed != null) return heldFeed!.future;
         final list = videos
             .where(

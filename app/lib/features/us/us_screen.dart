@@ -87,7 +87,7 @@ class UsScreen extends ConsumerWidget {
                 ),
                 _Tile(
                   icon: Icons.menu_book_outlined,
-                  title: 'Публикации для нас',
+                  title: 'Интересное для нас',
                   subtitle: 'Отдельный выбор общих тем для двоих',
                   onTap: () => _go(context, ref, '/content?mode=shared'),
                 ),
@@ -99,9 +99,9 @@ class UsScreen extends ConsumerWidget {
                 ),
                 _Tile(
                   icon: Icons.bookmark_outline,
-                  title: 'Мои сохранённые видео',
-                  subtitle: 'Личная коллекция — видна только тебе',
-                  onTap: () => _go(context, ref, '/videos?mode=saved'),
+                  title: 'Моё сохранённое',
+                  subtitle: 'Видео и статьи — видны только тебе',
+                  onTap: () => _go(context, ref, '/content?mode=saved'),
                 ),
                 _Tile(
                   icon: Icons.favorite_outline,

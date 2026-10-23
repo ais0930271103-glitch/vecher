@@ -7,7 +7,7 @@ import json
 import pytest
 from sqlalchemy import delete, select, text
 
-from app import content_catalogue as content, video_catalogue
+from app import content_catalogue as content, recommendations, video_catalogue
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import ContentPreferences, ContentState, DeliveryOutbox, SharedContentPreferences
@@ -44,6 +44,10 @@ def snapshot(tmp_path, monkeypatch):
     path = tmp_path / "publications.json"
     path.write_text(json.dumps(sample(), ensure_ascii=False), encoding="utf-8")
     monkeypatch.setenv("VECHER_CONTENT_CATALOGUE", str(path))
+    # Isolate the editorial contract from the real, independently reviewed
+    # platform catalogue. Bridge behaviour has its own integration scenarios.
+    legacy = tuple(video for video in video_catalogue.catalogue() if video.playback_kind == "direct")
+    monkeypatch.setattr(video_catalogue, "catalogue", lambda: legacy)
     return path
 
 
@@ -168,7 +172,8 @@ async def test_topics_are_union_and_withdrawing_last_matching_item_never_broaden
     selected = (await client.get("/content/settings", headers=ha)).json()
     assert selected["personal_topics"] == ["digital", "creativity"]
     assert {topic["id"] for topic in selected["topics"] if topic["available"]} == {"travel"}
-    assert {topic["id"] for topic in selected["topics"] if not topic["available"]} == {"digital", "creativity", "food"}
+    assert {"digital", "creativity", "food"}.issubset(
+        {topic["id"] for topic in selected["topics"] if not topic["available"]})
     assert set(ids(await feed(client, hb))) == {"walk", "map"}
 
 
@@ -311,7 +316,8 @@ async def test_legacy_video_saves_and_ids_remain_separate_without_auto_import(cl
     # A reference only makes sense when its kind is explicitly video.
     assert (await client.get("/content/feed", headers=h)).status_code == 503
     edit_snapshot(snapshot, lambda value: value["items"][-1].update(kind="video"))
-    assert "reviewed-film" in ids(await feed(client, h))
+    assert "reviewed-film" not in ids(await feed(client, h))  # old files stay in the archive
+    assert (await client.get("/content/reviewed-film", headers=h)).json()["video_id"] == video.id
     assert (await client.get(f"/videos/{video.id}", headers=h)).json()["saved"]
 
 
@@ -426,9 +432,11 @@ async def test_real_pilot_snapshot_has_complete_feed_detail_author_and_series_co
     # Exercise the actual bundled editorial release, not only synthetic cases.
     monkeypatch.delenv("VECHER_CONTENT_CATALOGUE", raising=False)
     snapshot = validate_source(content.DEFAULT_PATH)
+    unified = recommendations.with_reviewed_videos(snapshot)
     h = await login(client, "pilot-reader@example.ru")
     settings = (await client.get("/content/settings", headers=h)).json()
-    assert settings["topics"] and settings["catalogue_revision"] == snapshot.revision
+    assert settings["topics"] and settings["catalogue_revision"] == unified.revision
+    assert settings["unified_feed"] is True
     chosen = settings["topics"][0]["id"]
     selected = await client.put("/content/settings/personal", headers=h,
                                 json={"topics": [chosen], "language": "all", "revision": 0})
@@ -438,7 +446,8 @@ async def test_real_pilot_snapshot_has_complete_feed_detail_author_and_series_co
     assert set(ids(data)) == expected and expected
     first = data["items"][0]
     detail = (await client.get(f"/content/{first['id']}", headers=h)).json()
-    assert detail == first and detail["blocks"] and detail["summary"]
+    assert detail == {key: value for key, value in first.items() if key != "recommendation_reason"}
+    assert detail["blocks"] and detail["summary"] and first["recommendation_reason"]
     author = (await client.get(f"/content/authors/{first['author']['id']}", headers=h)).json()
     assert author["name"] == first["author"]["name"]
     assert author["published_count"] == sum(item.active and item.author_id == author["id"] for item in snapshot.items)
