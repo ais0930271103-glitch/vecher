@@ -17,6 +17,17 @@ enum ContentMode {
       values.firstWhere((m) => m.name == value, orElse: () => personal);
 }
 
+enum ContentFormat {
+  all('Всё'),
+  video('Видео'),
+  article('Статьи');
+
+  const ContentFormat(this.title);
+  final String title;
+  static ContentFormat parse(String? value) =>
+      values.firstWhere((format) => format.name == value, orElse: () => all);
+}
+
 class ContentChoice {
   const ContentChoice(this.id, this.title, {this.available = true});
   factory ContentChoice.fromJson(Map data) => ContentChoice(
@@ -44,6 +55,7 @@ class ContentSettings {
       sharedRevision = data['shared_revision'] as int,
       followedAuthorIds = (data['followed_author_ids'] as List).cast<String>(),
       hiddenAuthorIds = (data['hidden_author_ids'] as List).cast<String>(),
+      unifiedFeed = data['unified_feed'] == true,
       hasPair = data['has_pair'] == true;
   final List<ContentChoice> topics, languages;
   final List<String> personalTopics,
@@ -52,7 +64,7 @@ class ContentSettings {
       hiddenAuthorIds;
   final String personalLanguage, sharedLanguage;
   final int personalRevision, sharedRevision;
-  final bool hasPair;
+  final bool hasPair, unifiedFeed;
 }
 
 class ContentAuthor {
@@ -108,6 +120,8 @@ class Publication {
       seriesOrder = data['series_order'] as int?,
       readingMinutes = data['reading_minutes'] as int,
       videoId = data['video_id'] as String?,
+      durationSeconds = (data['duration_seconds'] as num?)?.round(),
+      recommendationReason = data['recommendation_reason'] as String?,
       useful = data['useful'] == true,
       saved = data['saved'] == true,
       hidden = data['hidden'] == true,
@@ -119,15 +133,28 @@ class Publication {
   final List<ContentBlock> blocks;
   final List<ContentSource> sources;
   final DateTime? publishedAt, updatedAt;
-  final String? seriesId, seriesTitle, videoId;
-  final int? seriesOrder;
+  final String? seriesId, seriesTitle, videoId, recommendationReason;
+  final int? seriesOrder, durationSeconds;
   final int readingMinutes;
   final bool useful, saved, hidden, authorFollowed, authorHidden;
   String get kindLabel => kind == 'guide'
       ? 'Практикум'
       : kind == 'video'
       ? 'Видео'
-      : 'Публикация';
+      : 'Статья';
+  bool get isVideo => kind == 'video' && videoId != null;
+  String get metadataLabel {
+    if (kind != 'video') return '$kindLabel · $readingMinutes мин чтения';
+    final seconds = durationSeconds;
+    if (seconds == null || seconds <= 0) return kindLabel;
+    final minutes = seconds ~/ 60;
+    final remainder = (seconds % 60).toString().padLeft(2, '0');
+    return '$kindLabel · $minutes:$remainder';
+  }
+
+  String get openLocation => isVideo
+      ? '/videos/${Uri.encodeComponent(videoId!)}'
+      : '/content/${Uri.encodeComponent(id)}';
 
   // Ordinary message text is deliberately compatible with already installed
   // clients. It is a draft, never a new unsupported reference or an auto-send.
@@ -162,6 +189,7 @@ Uri? contentSourceUri(String? value) {
 
 String contentLocation({
   ContentMode mode = ContentMode.personal,
+  ContentFormat format = ContentFormat.all,
   String? authorId,
   String? seriesId,
   String? title,
@@ -169,6 +197,7 @@ String contentLocation({
   path: '/content',
   queryParameters: {
     if (mode != ContentMode.personal) 'mode': mode.name,
+    if (format != ContentFormat.all) 'format': format.name,
     if (authorId != null) 'author_id': authorId,
     if (seriesId != null) 'series_id': seriesId,
     if (title != null) 'title': title,
@@ -296,7 +325,7 @@ class ContentUnavailable extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const Scaffold(
     body: SafeArea(
-      child: Center(child: Text('Публикации откроются после разблокировки')),
+      child: Center(child: Text('Интересное откроется после разблокировки')),
     ),
   );
 }

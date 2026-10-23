@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,9 +16,11 @@ import 'package:vecher_app/core/chat_presence.dart';
 import 'package:vecher_app/core/privacy.dart';
 import 'package:vecher_app/core/realtime_provider.dart';
 import 'package:vecher_app/core/session_changes.dart';
+import 'package:vecher_app/core/theme.dart';
 import 'package:vecher_app/features/chat/chat_screen.dart';
 import 'package:vecher_app/features/content/content.dart';
 import 'package:vecher_app/features/content/content_author_screen.dart';
+import 'package:vecher_app/features/content/content_entries.dart';
 import 'package:vecher_app/features/content/content_preferences_screen.dart';
 import 'package:vecher_app/features/content/content_screen.dart';
 import 'package:vecher_app/features/content/publication_screen.dart';
@@ -179,7 +184,7 @@ void main() {
     (tester) async {
       final api = _ContentApi()..personalTopics = ['digital'];
       await _mount(tester, api);
-      expect(find.text('Пока нет подходящих публикаций'), findsOneWidget);
+      expect(find.text('Пока нет подходящих материалов'), findsOneWidget);
       expect(find.text('Практический план'), findsNothing);
       expect(api.feedQueries.every((q) => q['mode'] == 'personal'), isTrue);
       await tester.enterText(
@@ -203,7 +208,7 @@ void main() {
         ..conflictCursor = true;
       await _mount(tester, api);
       expect(find.text('Практический план'), findsOneWidget);
-      await _tap(tester, 'Ещё публикации');
+      await _tap(tester, 'Показать ещё');
       expect(find.textContaining('Подборка изменилась'), findsOneWidget);
       expect(find.text('Обновлённый практикум'), findsOneWidget);
       expect(find.text('Практический план'), findsNothing);
@@ -221,7 +226,7 @@ void main() {
   ) async {
     final api = _ContentApi()..paged = true;
     await _mount(tester, api);
-    await _tap(tester, 'Ещё публикации');
+    await _tap(tester, 'Показать ещё');
     expect(find.text('Практический план'), findsOneWidget);
     expect(find.text('Вторая полезная публикация'), findsOneWidget);
     await tester.ensureVisible(find.byKey(const ValueKey('content-search')));
@@ -395,6 +400,228 @@ void main() {
       await _unmount(tester);
     },
   );
+
+  testWidgets(
+    'one interesting entry opens the common feed without a competing video feed',
+    (tester) async {
+      final api = _ContentApi();
+      await _mount(tester, api, path: '/together-entry');
+      expect(find.text('Интересное'), findsOneWidget);
+      expect(find.textContaining('Прежняя'), findsNothing);
+      await _tap(tester, 'Интересное');
+      expect(find.byType(ContentScreen), findsOneWidget);
+      expect(api.feedQueries.last['mode'], 'personal');
+      expect(find.byKey(const ValueKey('content-format-all')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('content-format-video')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('content-format-article')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('content-legacy-saved')), findsNothing);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'video cards show video duration and open the existing player directly',
+    (tester) async {
+      final api = _ContentApi()..items = [_videoPublication()];
+      final h = await _mount(tester, api);
+      await _tap(tester, 'Видео с полезным приёмом');
+      expect(find.text('Video player: rutube-example'), findsOneWidget);
+      expect(api.stateChanges, isEmpty);
+      h.router.pop();
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Видео · 4:23'),
+        250,
+        scrollable: find.byType(Scrollable).last,
+      );
+      expect(find.text('Видео · 4:23'), findsOneWidget);
+      expect(find.textContaining('мин чтения'), findsNothing);
+      expect(find.text('По выбранной теме «Дом»'), findsOneWidget);
+      expect(find.text('Смотреть'), findsOneWidget);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets('format stays explicit across mode and search changes', (
+    tester,
+  ) async {
+    final api = _ContentApi()..items.add(_videoPublication());
+    await _mount(tester, api, path: '/content?format=video');
+    expect(api.feedQueries.last['format'], 'video');
+    expect(find.text('Практический план'), findsNothing);
+    await _tap(tester, 'Для нас');
+    expect(api.feedQueries.last['mode'], 'shared');
+    expect(api.feedQueries.last['format'], 'video');
+    await tester.ensureVisible(find.byKey(const ValueKey('content-search')));
+    await tester.enterText(
+      find.byKey(const ValueKey('content-search')),
+      'Полезным',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(api.feedQueries.last['q'], 'Полезным');
+    expect(api.feedQueries.last['format'], 'video');
+    await _tap(tester, 'Статьи');
+    expect(api.feedQueries.last['mode'], 'shared');
+    expect(api.feedQueries.last['format'], 'article');
+    expect(api.feedQueries.last['q'], 'Полезным');
+    expect(api.feedQueries.last.containsKey('cursor'), isFalse);
+    expect(find.text('Видео с полезным приёмом'), findsNothing);
+    await _unmount(tester);
+  });
+
+  testWidgets(
+    'discovery is an explicit temporary choice and cannot carry into shared mode',
+    (tester) async {
+      final api = _ContentApi()..personalTopics = ['digital'];
+      await _mount(tester, api);
+      expect(find.text('Практический план'), findsNothing);
+      expect(api.feedQueries.last.containsKey('discover'), isFalse);
+      await _tap(tester, 'Открыть новое');
+      expect(api.feedQueries.last['discover'], isTrue);
+      expect(
+        find.byKey(const ValueKey('content-discovery-notice')),
+        findsOneWidget,
+      );
+      expect(find.text('Вернуться к моим темам'), findsOneWidget);
+      expect(api.personalTopics, ['digital']);
+      expect(api.settingsChanges, isEmpty);
+      await _tap(tester, 'Для нас');
+      expect(api.feedQueries.last['mode'], 'shared');
+      expect(api.feedQueries.last.containsKey('discover'), isFalse);
+      expect(find.byKey(const ValueKey('content-discover')), findsNothing);
+      expect(api.requests.every((request) => request.method == 'GET'), isTrue);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'saved legacy clips have one clearly separate archive inside saved',
+    (tester) async {
+      final api = _ContentApi();
+      await _mount(tester, api);
+      expect(find.byKey(const ValueKey('content-legacy-saved')), findsNothing);
+      await tester.tap(find.byTooltip('Сохранённое'));
+      await tester.pumpAndSettle();
+      expect(api.feedQueries.last['mode'], 'saved');
+      await _tap(tester, 'Архив сохранённых видео');
+      expect(
+        find.text('Legacy videos remain available: mode=saved&legacy=true'),
+        findsOneWidget,
+      );
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets(
+    'older server keeps articles usable without pretending to support new filters',
+    (tester) async {
+      final api = _ContentApi()..unifiedFeed = false;
+      await _mount(tester, api, path: '/content?format=video&discover=true');
+      expect(
+        find.byKey(const ValueKey('content-compatibility-notice')),
+        findsOneWidget,
+      );
+      expect(api.feedQueries.last.containsKey('format'), isFalse);
+      expect(api.feedQueries.last.containsKey('discover'), isFalse);
+      expect(
+        tester
+            .widget<ChoiceChip>(
+              find.byKey(const ValueKey('content-format-video')),
+            )
+            .onSelected,
+        isNull,
+      );
+      expect(find.byKey(const ValueKey('content-discover')), findsNothing);
+      await _unmount(tester);
+    },
+  );
+
+  testWidgets('optional real-widget screenshots for content layout review', (
+    tester,
+  ) async {
+    final reviewDirectory = Platform.environment['VECHER_CONTENT_REVIEW_DIR']!;
+    await tester.runAsync(() async {
+      final font = FontLoader('Manrope')
+        ..addFont(rootBundle.load('assets/fonts/Manrope-Regular.ttf'))
+        ..addFont(rootBundle.load('assets/fonts/Manrope-SemiBold.ttf'))
+        ..addFont(rootBundle.load('assets/fonts/Manrope-Bold.ttf'));
+      await font.load();
+      await (FontLoader(
+        'MaterialIcons',
+      )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
+      await Directory(reviewDirectory).create(recursive: true);
+    });
+    for (final configuration in const [
+      (name: 'phone', width: 390.0, scale: 1.0),
+      (name: 'small-large-text', width: 320.0, scale: 1.3),
+    ]) {
+      final api = _ContentApi()
+        ..items = [
+          _videoPublication(),
+          {
+            ..._publication('one', 'Один шаг к порядку дома'),
+            'recommendation_reason': 'По выбранной теме «Дом»',
+          },
+        ];
+      await _mount(
+        tester,
+        api,
+        path: '/together-entry',
+        size: Size(configuration.width, 844),
+        textScale: configuration.scale,
+        review: true,
+      );
+      await _tap(tester, 'Интересное');
+      expect(find.byType(BackButton), findsOneWidget);
+      final title = tester.renderObject<RenderParagraph>(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Интересное'),
+        ),
+      );
+      expect(title.didExceedMaxLines, isFalse);
+      expect(tester.takeException(), isNull);
+      await _captureContentReview(
+        tester,
+        '$reviewDirectory/${configuration.name}-top.png',
+      );
+      await tester.scrollUntilVisible(
+        find.text('Видео · 4:23'),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.byType(PublicationCard).first),
+        alignment: 0,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await _captureContentReview(
+        tester,
+        '$reviewDirectory/${configuration.name}-cards.png',
+      );
+      await _unmount(tester);
+    }
+  }, skip: Platform.environment['VECHER_CONTENT_REVIEW_DIR'] == null);
+}
+
+Future<void> _captureContentReview(WidgetTester tester, String path) async {
+  final boundary = tester.renderObject<RenderRepaintBoundary>(
+    find.byKey(const ValueKey('content-review-boundary')),
+  );
+  await tester.runAsync(() async {
+    final image = await boundary.toImage(pixelRatio: 2);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    await File(path).writeAsBytes(bytes!.buffer.asUint8List());
+    image.dispose();
+  });
 }
 
 Future<void> _tap(WidgetTester tester, String text) async {
@@ -434,6 +661,7 @@ Future<_Harness> _mount(
   Size size = const Size(420, 920),
   double textScale = 1,
   bool settle = true,
+  bool review = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -448,9 +676,15 @@ Future<_Harness> _mount(
     observers: [chatRouteObserver],
     routes: [
       GoRoute(
+        path: '/together-entry',
+        builder: (_, __) => const Scaffold(body: ContentTogetherCard()),
+      ),
+      GoRoute(
         path: '/content',
         builder: (_, state) => ContentScreen(
           mode: ContentMode.parse(state.uri.queryParameters['mode']),
+          format: ContentFormat.parse(state.uri.queryParameters['format']),
+          discover: state.uri.queryParameters['discover'] == 'true',
           authorId: state.uri.queryParameters['author_id'],
           seriesId: state.uri.queryParameters['series_id'],
           title: state.uri.queryParameters['title'],
@@ -482,8 +716,14 @@ Future<_Harness> _mount(
       ),
       GoRoute(
         path: '/videos',
-        builder: (_, __) =>
-            const Scaffold(body: Text('Legacy videos remain available')),
+        builder: (_, state) => Scaffold(
+          body: Text('Legacy videos remain available: ${state.uri.query}'),
+        ),
+      ),
+      GoRoute(
+        path: '/videos/:id',
+        builder: (_, state) =>
+            Scaffold(body: Text('Video player: ${state.pathParameters['id']}')),
       ),
     ],
   );
@@ -504,13 +744,23 @@ Future<_Harness> _mount(
         ),
       ],
       child: MaterialApp.router(
-        theme: ThemeData(brightness: Brightness.dark, useMaterial3: true),
+        theme: review
+            ? buildTheme()
+            : ThemeData(brightness: Brightness.dark, useMaterial3: true),
         routerConfig: router,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(textScale)),
-          child: PinGate(child: child!),
-        ),
+        builder: (context, child) {
+          final view = MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
+            child: PinGate(child: child!),
+          );
+          return review
+              ? RepaintBoundary(
+                  key: const ValueKey('content-review-boundary'),
+                  child: view,
+                )
+              : view;
+        },
       ),
     ),
   );
@@ -559,6 +809,17 @@ Map<String, dynamic> _publication(String id, String title) => {
   'author_hidden': false,
 };
 
+Map<String, dynamic> _videoPublication() => {
+  ..._publication('video-rutube-example', 'Видео с полезным приёмом'),
+  'kind': 'video',
+  'video_id': 'rutube-example',
+  'duration_seconds': 263,
+  'recommendation_reason': 'По выбранной теме «Дом»',
+  'series_id': null,
+  'series_title': null,
+  'series_order': null,
+};
+
 ResponseBody _json(dynamic value, {int status = 200}) =>
     ResponseBody.fromString(
       jsonEncode(value),
@@ -574,6 +835,7 @@ class _ContentApi implements HttpClientAdapter {
   String personalLanguage = 'ru', sharedLanguage = 'ru';
   int personalRevision = 0, sharedRevision = 0;
   bool conflictShared = false, followed = false, hiddenAuthor = false;
+  bool unifiedFeed = true;
   bool paged = false, conflictCursor = false, failFeed = false;
   Completer<ResponseBody>? heldFeed;
   final requests = <RequestOptions>[];
@@ -583,6 +845,7 @@ class _ContentApi implements HttpClientAdapter {
   final messages = <Map<String, dynamic>>[];
 
   Map<String, dynamic> get settings => {
+    'unified_feed': unifiedFeed,
     'topics': [
       {'id': 'home', 'title': 'Дом'},
       {'id': 'digital', 'title': 'Цифровая жизнь'},
@@ -656,9 +919,17 @@ class _ContentApi implements HttpClientAdapter {
               }
               if (hiddenAuthor) return false;
               if (mode == 'following') return followed;
+              if (mode == 'personal' && query['discover'] == true) return true;
               final topics = mode == 'shared' ? sharedTopics : personalTopics;
               return (item['topics'] as List).any(topics.contains);
             })
+            .where(
+              (item) => switch (query['format']) {
+                'video' => item['kind'] == 'video',
+                'article' => item['kind'] != 'video',
+                _ => true,
+              },
+            )
             .where(
               (item) =>
                   query['q'] == null ||

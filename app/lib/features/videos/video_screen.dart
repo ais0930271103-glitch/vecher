@@ -9,15 +9,22 @@ import '../../core/api.dart';
 import '../../core/chat_presence.dart';
 import '../../core/theme.dart';
 import '../chat/chat_screen.dart' show openChat;
+import '../content/content.dart' show invalidateContent;
 import 'rutube_player.dart';
 import 'video_player.dart';
 import 'video_topics.dart';
 import 'videos.dart';
 
 class VideoScreen extends ConsumerStatefulWidget {
-  const VideoScreen({super.key, this.mode = VideoMode.personal, this.videoId});
+  const VideoScreen({
+    super.key,
+    this.mode = VideoMode.personal,
+    this.videoId,
+    this.legacyOnly = false,
+  });
   final VideoMode mode;
   final String? videoId;
+  final bool legacyOnly;
   @override
   ConsumerState<VideoScreen> createState() => _VideoScreenState();
 }
@@ -38,7 +45,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> with RouteAware {
   @override
   void didUpdateWidget(VideoScreen old) {
     super.didUpdateWidget(old);
-    if (old.mode != widget.mode || old.videoId != widget.videoId) {
+    if (old.mode != widget.mode ||
+        old.videoId != widget.videoId ||
+        old.legacyOnly != widget.legacyOnly) {
       _mode = widget.mode;
       _refreshNumber++;
     }
@@ -92,6 +101,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> with RouteAware {
     setState(() => _refreshNumber++);
     if (widget.videoId != null) {
       ref.invalidate(shortVideoProvider(widget.videoId!));
+    } else if (widget.legacyOnly) {
+      ref.invalidate(legacySavedVideoFeedProvider);
     } else {
       ref.invalidate(videoFeedProvider(_mode));
     }
@@ -102,13 +113,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> with RouteAware {
     final access = ref.watch(videoAccessProvider);
     final settings = ref.watch(videoSettingsProvider);
     final AsyncValue<VideoFeed> feed = widget.videoId == null
-        ? ref.watch(videoFeedProvider(_mode))
+        ? widget.legacyOnly
+              ? ref.watch(legacySavedVideoFeedProvider)
+              : ref.watch(videoFeedProvider(_mode))
         : ref.watch(singleVideoFeedProvider(widget.videoId!));
     return Scaffold(
       backgroundColor: VColors.bgDeep,
       appBar: AppBar(
         title: Text(
-          widget.videoId != null ? 'Видео' : 'Видео и блоги',
+          widget.videoId != null
+              ? 'Видео'
+              : widget.legacyOnly
+              ? 'Сохранённые прежние видео'
+              : 'Видео',
           style: display(20),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -207,13 +224,20 @@ class _VideoScreenState extends ConsumerState<VideoScreen> with RouteAware {
                         key: ValueKey(
                           '${access.revision}:${_mode.query}:${widget.videoId ?? 'feed'}:$_refreshNumber',
                         ),
-                        initial: data.items,
+                        initial: widget.legacyOnly
+                            ? data.items
+                                  .where(
+                                    (item) => item.playbackKind == 'direct',
+                                  )
+                                  .toList()
+                            : data.items,
                         mode: _mode,
                         visible: _visible,
                         visibility: _visibility,
                         muted: _muted,
                         hasPair: settings.valueOrNull?.hasPair == true,
                         single: widget.videoId != null,
+                        legacyOnly: widget.legacyOnly,
                         onMute: (muted) => setState(() => _muted = muted),
                         onRefresh: _refresh,
                       ),
@@ -236,12 +260,13 @@ class _VideoPager extends ConsumerStatefulWidget {
     required this.muted,
     required this.hasPair,
     required this.single,
+    this.legacyOnly = false,
     required this.onMute,
     required this.onRefresh,
   });
   final List<ShortVideo> initial;
   final VideoMode mode;
-  final bool visible, muted, hasPair, single;
+  final bool visible, muted, hasPair, single, legacyOnly;
   final ValueNotifier<bool> visibility;
   final ValueChanged<bool> onMute;
   final VoidCallback onRefresh;
@@ -348,6 +373,7 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
       // Other entry points fetch current marks when reopened. The active feed
       // keeps its order so a like cannot unexpectedly switch to another clip.
       ref.invalidate(shortVideoProvider(video.id));
+      invalidateContent(ref);
     } catch (e) {
       if (mounted && request.valid) {
         setState(() => _notice = videoErrorText(e, detail: true));
@@ -434,12 +460,14 @@ class _VideoPagerState extends ConsumerState<_VideoPager> {
           child: _items.isEmpty
               ? _VideoEmpty(
                   icon: Icons.video_library_outlined,
-                  title: switch (widget.mode) {
-                    VideoMode.saved =>
-                      'Здесь появятся ролики, которые ты сохранишь.',
-                    VideoMode.sharedCollection => 'Отправьте друг другу видео в чате — они останутся здесь.',
-                    _ => 'В этой подборке пока нет доступных роликов. Можно выбрать другие темы или вернуться позже.',
-                  },
+                  title: widget.legacyOnly
+                      ? 'У тебя нет сохранённых роликов из прежней подборки.'
+                      : switch (widget.mode) {
+                          VideoMode.saved =>
+                            'Здесь появятся ролики, которые ты сохранишь.',
+                          VideoMode.sharedCollection => 'Отправьте друг другу видео в чате — они останутся здесь.',
+                          _ => 'В этой подборке пока нет доступных роликов. Можно выбрать другие темы или вернуться позже.',
+                        },
                   action:
                       widget.mode == VideoMode.personal ||
                           widget.mode == VideoMode.shared

@@ -9,6 +9,7 @@ import binascii
 import hashlib
 import hmac
 import json
+from datetime import timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -16,12 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import content_catalogue as content, video_catalogue
+from .. import content_catalogue as content, content_analysis, recommendations, video_catalogue
 from ..config import get_settings
 from ..db import get_session
 from ..deps import PairContext, active_pair, consented_user
 from ..models import (ContentPreferences, ContentState, Pair, PairMember,
-                      SharedContentPreferences, User, utcnow)
+                      SharedContentPreferences, SharedVideoPreferences, User,
+                      VideoPreferences, VideoState, utcnow)
 from ..pair_lock import pair_lock
 from ..realtime import enqueue_invalidation, invalidate_pair
 from ..user_lock import user_lock
@@ -35,6 +37,7 @@ def _no_store(response: Response):
 router = APIRouter(prefix="/content", tags=["content"], dependencies=[Depends(_no_store)])
 Language = Literal["ru", "en", "none", "all"]
 Mode = Literal["personal", "following", "shared", "saved"]
+Format = Literal["all", "video", "article"]
 Identifier = Annotated[str, Query(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")]
 
 
@@ -68,25 +71,25 @@ class AuthorStateIn(ExplicitState):
 
 def _snapshot() -> content.Catalogue:
     try:
-        return content.catalogue()
+        return recommendations.with_reviewed_videos(content.catalogue())
     except (OSError, ValueError, UnicodeError):
         # Do not expose a server path or an invalid, possibly private editorial
         # draft in a validation traceback returned to a reader.
         raise HTTPException(503, "Подборка временно недоступна. Попробуй обновить позже") from None
 
 
-def _available(snapshot: content.Catalogue) -> list[content.Publication]:
+def _available(snapshot: content.Catalogue, *, deduplicate: bool = True) -> list[content.Publication]:
     items = content.published(snapshot)
     if any(item.kind == "video" for item in items):
-        # Only intentional, validated references enter the new feed. Existing
-        # /videos, IDs and feedback remain available to old and new clients.
+        # The bridge uses the already reviewed catalogue. Existing /videos,
+        # player IDs and private feedback remain available to older clients.
         videos = {video.id for video in video_catalogue.catalogue() if video.active}
         items = [item for item in items if item.kind != "video" or item.video_id in videos]
-    return items
+    return recommendations.unique_items(items) if deduplicate else items
 
 
 def _require_item(snapshot: content.Catalogue, item_id: str) -> content.Publication:
-    item = next((item for item in _available(snapshot) if item.id == item_id), None)
+    item = next((item for item in _available(snapshot, deduplicate=False) if item.id == item_id), None)
     if item is None:
         raise HTTPException(404, "Эта публикация сейчас недоступна")
     return item
@@ -109,6 +112,27 @@ def _shared_profile(row: SharedContentPreferences | None) -> dict:
     return json.loads(row.data) if row else {"topics": [], "language": "ru"}
 
 
+async def _reader_profile(session: AsyncSession, user_id: str, row: ContentPreferences | None) -> dict:
+    result = _profile(row)
+    if row is None:
+        legacy = await session.get(VideoPreferences, user_id)
+        if legacy:
+            result["topics"] = list(dict.fromkeys(content_analysis.normalize_topic(topic)
+                                                  for topic in json.loads(legacy.topics)))
+    return result
+
+
+async def _pair_profile(session: AsyncSession, pair_id: str,
+                        row: SharedContentPreferences | None) -> dict:
+    result = _shared_profile(row)
+    if row is None:
+        legacy = await session.get(SharedVideoPreferences, pair_id)
+        if legacy:
+            result["topics"] = list(dict.fromkeys(content_analysis.normalize_topic(topic)
+                                                  for topic in json.loads(legacy.topics)))
+    return result
+
+
 def _state(row: ContentState | None) -> dict:
     return json.loads(row.data) if row else {"useful": False, "saved": False, "hidden": False}
 
@@ -128,18 +152,74 @@ async def _states(session: AsyncSession, user_id: str) -> dict[str, ContentState
     return {row.content_id: row for row in rows}
 
 
+async def _video_states(session: AsyncSession, user_id: str) -> dict[str, VideoState]:
+    rows = (await session.execute(select(VideoState).where(VideoState.user_id == user_id))).scalars()
+    return {row.video_id: row for row in rows}
+
+
+def _item_state(item: content.Publication, snapshot: content.Catalogue,
+                states: dict[str, ContentState], videos: dict[str, VideoState]) -> dict:
+    if item.video_id is None:
+        return _state(states.get(item.id))
+    legacy = json.loads(videos[item.video_id].data) if item.video_id in videos else {}
+    # Earlier editorial video publications had independent explicit marks.
+    # Preserve them without a GET-time migration; one video is shown once.
+    linked = [_state(states[publication.id]) for publication in snapshot.items
+              if publication.video_id == item.video_id and publication.id in states]
+    merged = recommendations.merge_video_feedback(legacy, linked)
+    return {field: merged[legacy_field] for field, legacy_field in recommendations.VIDEO_FIELDS.items()}
+
+
+def _last_changed(item: content.Publication, snapshot: content.Catalogue,
+                  states: dict[str, ContentState], videos: dict[str, VideoState]) -> float:
+    rows = [states[item.id]] if item.id in states else []
+    if item.video_id:
+        rows = [states[linked.id] for linked in snapshot.items
+                if linked.video_id == item.video_id and linked.id in states]
+        if (item.video_id in videos
+                and recommendations.has_explicit_video_feedback(json.loads(videos[item.video_id].data))):
+            rows.append(videos[item.video_id])
+    return max((row.updated_at.replace(tzinfo=timezone.utc).timestamp() if row.updated_at.tzinfo is None
+                else row.updated_at.timestamp() for row in rows), default=0.0)
+
+
+def _video_fingerprint(rows: dict[str, VideoState], relevant_ids: set[str]) -> list:
+    result = []
+    for video_id, row in sorted(rows.items()):
+        if video_id not in relevant_ids:
+            continue
+        data = json.loads(row.data)
+        if not recommendations.has_explicit_video_feedback(data):
+            continue
+        # New platform writes have an explicit counter. Older positive rows
+        # retain their old explicit-write timestamp; viewed never changes it.
+        revision = data.get("content_revision") or row.updated_at.isoformat()
+        result.append((video_id, {field: bool(data.get(field, False))
+                                  for field in ("liked", "saved", "hidden")},
+                       revision, data.get("content_overrides", [])))
+    return result
+
+
 def _author_out(author: content.Author, profile: dict, items: list[content.Publication]) -> dict:
     return {**author.model_dump(), "published_count": sum(item.author_id == author.id for item in items),
             "followed": author.id in profile["followed_author_ids"],
             "hidden": author.id in profile["hidden_author_ids"]}
 
 
-def _out(item: content.Publication, snapshot: content.Catalogue, profile: dict, state: dict) -> dict:
+def _out(item: content.Publication, snapshot: content.Catalogue, profile: dict, state: dict,
+         reason: str | None = None) -> dict:
     result = item.model_dump(mode="json", exclude={"author_id", "active", "reviewed_at"})
     result["author"] = _require_author(snapshot, item.author_id).model_dump()
     result.update({key: bool(state.get(key, False)) for key in ("useful", "saved", "hidden")})
     result["author_followed"] = item.author_id in profile["followed_author_ids"]
     result["author_hidden"] = item.author_id in profile["hidden_author_ids"]
+    if reason is not None:
+        result["recommendation_reason"] = reason
+    if item.video_id:
+        video = video_catalogue.find_video(item.video_id)
+        if video:
+            result.update(duration_seconds=round(video.duration_seconds), thumbnail_url=video.thumbnail_url,
+                          source_url=video.source_url, playback_kind=video.playback_kind)
     return result
 
 
@@ -147,7 +227,8 @@ async def _settings(session: AsyncSession, user: User, snapshot: content.Catalog
     ctx = await _context(session, user)
     own = await session.get(ContentPreferences, user.id)
     shared = await session.get(SharedContentPreferences, ctx.pair.id) if ctx else None
-    private, common = _profile(own), _shared_profile(shared)
+    private = await _reader_profile(session, user.id, own)
+    common = await _pair_profile(session, ctx.pair.id, shared) if ctx else _shared_profile(None)
     available = _available(snapshot)
     topic_counts = {topic.id: sum(topic.id in item.topics for item in available) for topic in snapshot.topics}
     return {
@@ -165,7 +246,8 @@ async def _settings(session: AsyncSession, user: User, snapshot: content.Catalog
         "shared_revision": shared.revision if shared else 0,
         "followed_author_ids": private["followed_author_ids"],
         "hidden_author_ids": private["hidden_author_ids"], "has_pair": ctx is not None,
-        "catalogue_revision": snapshot.revision,
+        "catalogue_revision": snapshot.revision, "unified_feed": True,
+        "recommendation_signals": ["topics", "useful", "saved", "followed_authors", "hidden"],
     }
 
 
@@ -191,7 +273,7 @@ async def personal_settings(body: SettingsIn, user: User = Depends(consented_use
         row = await session.get(ContentPreferences, user.id, populate_existing=True)
         if body.revision != (row.revision if row else 0):
             raise HTTPException(409, "Личные настройки изменились — открой выбор заново")
-        data = _profile(row)
+        data = await _reader_profile(session, user.id, row)
         if row is None or any(data[key] != value for key, value in selected.items()):
             data.update(selected)
             if row is None:
@@ -261,24 +343,34 @@ def _language_matches(item: content.Publication, language: str) -> bool:
 
 
 def _search(item: content.Publication, snapshot: content.Catalogue, query: str) -> bool:
-    text = [item.title, item.summary, _require_author(snapshot, item.author_id).name]
-    for block in item.blocks:
-        text.extend(block.items if isinstance(block, content.ListBlock) else [block.text])
-    haystack = " ".join(text).casefold()
-    return all(term in haystack for term in query.split())
+    return recommendations.search_score(item, _require_author(snapshot, item.author_id).name, query) >= 0
 
 
 @router.get("/feed")
 async def feed(mode: Mode = "personal", limit: int = Query(20, ge=1, le=50),
                cursor: str | None = Query(None, max_length=2048), q: str = Query("", max_length=120),
                author_id: Identifier | None = None, series_id: Identifier | None = None,
+               format: Format = "all", discover: bool = False,
                user: User = Depends(consented_user), session: AsyncSession = Depends(get_session)):
+    if discover and mode != "personal":
+        raise HTTPException(422, "Знакомство с темами доступно в личной подборке")
     snapshot = _snapshot()
-    items = _available(snapshot)
+    all_items = _available(snapshot)
+    # Old licensed direct clips keep their own saved archive and direct links.
+    # New recommendations contain only the reviewed platform video catalogue.
+    platform_ids = {video.id for video in video_catalogue.catalogue()
+                    if video.active and video.playback_kind == "rutube_embed"}
+    items = [item for item in all_items if item.kind != "video" or item.video_id in platform_ids]
     available_ids = [item.id for item in items]
+    if format == "video":
+        items = [item for item in items if item.kind == "video"]
+    elif format == "article":
+        items = [item for item in items if item.kind != "video"]
     own = await session.get(ContentPreferences, user.id)
-    private = _profile(own)
+    private = await _reader_profile(session, user.id, own)
     states = await _states(session, user.id)
+    video_states = await _video_states(session, user.id)
+    effective_states = {item.id: _item_state(item, snapshot, states, video_states) for item in all_items}
     ctx, shared = None, None
     if mode == "shared":
         ctx = await _context(session, user)
@@ -293,45 +385,74 @@ async def feed(mode: Mode = "personal", limit: int = Query(20, ge=1, le=50),
             raise HTTPException(404, "Серия сейчас недоступна")
         items = [item for item in items if item.series_id == series_id]
     explicit_browse = mode == "personal" and bool(author_id or series_id)
+    settings = await _pair_profile(session, ctx.pair.id, shared) if mode == "shared" else private
     if mode == "saved":
         # A save remains reachable even after the reader hides its author or
         # changes their interests. Only editorial withdrawal removes it.
-        items = [item for item in items if _state(states.get(item.id))["saved"]]
+        items = [item for item in items if effective_states[item.id]["saved"]]
     else:
-        items = [item for item in items if not _state(states.get(item.id))["hidden"]]
+        items = [item for item in items if not effective_states[item.id]["hidden"]]
         if not explicit_browse:
             items = [item for item in items if item.author_id not in private["hidden_author_ids"]]
         if mode == "following":
             items = [item for item in items if item.author_id in private["followed_author_ids"]]
-        settings = _shared_profile(shared) if mode == "shared" else private
         if not explicit_browse:
             items = [item for item in items if _language_matches(item, settings["language"])]
             if mode != "following":
                 topics = set(settings["topics"])
-                items = [item for item in items if topics.intersection(item.topics)]
+                # Only the explicit personal exploration switch can broaden
+                # topics; it changes no stored choice and never affects shared.
+                if not discover:
+                    items = [item for item in items if topics.intersection(item.topics)]
     query = " ".join(q.casefold().split())
+    embedding_index, embedding_revision = content_analysis.load_embedding_index()
+    query_scores = {}
     if query:
-        items = [item for item in items if _search(item, snapshot, query)]
+        query_scores = {item.id: recommendations.search_score(
+            item, _require_author(snapshot, item.author_id).name, query) for item in items}
+        items = [item for item in items if query_scores[item.id] >= 0]
+    reasons = {}
     if series_id:
         items.sort(key=lambda item: (item.series_order, item.id))
+        reasons = {item.id: "Из выбранной вами серии" for item in items}
     elif mode == "saved":
-        items.sort(key=lambda item: (states[item.id].updated_at, item.id), reverse=True)
+        items.sort(key=lambda item: (_last_changed(item, snapshot, states, video_states), item.id), reverse=True)
+        reasons = {item.id: "Вы сохранили этот материал" for item in items}
     else:
-        items.sort(key=lambda item: (item.published_at, item.id), reverse=True)
+        # Public analysis can cross article/video formats. Private feedback
+        # never enters the shared rank or explanations; own hides are filters.
+        evidence_items = [item for item in all_items
+                          if item.author_id not in private["hidden_author_ids"]]
+        items, reasons = recommendations.rank(
+            items, all_items=evidence_items, states=effective_states,
+            topics=settings["topics"] if mode != "following" else [],
+            followed_authors=private["followed_author_ids"],
+            topic_titles={topic.id: topic.title for topic in snapshot.topics},
+            mode=mode, query_scores=query_scores, discover=discover,
+            embedding_index=embedding_index,
+        )
     # Opaque authenticated cursor: no interests, author IDs or search terms
     # inside it. All filters and revisions are bound, including explicit
     # availability of referenced videos; a stale page cannot silently skip.
     fingerprint = hashlib.sha256(_json({
         "u": user.id, "p": ctx.pair.id if ctx else None, "m": mode, "q": query,
         "a": author_id, "s": series_id, "l": limit, "c": snapshot.revision,
+        "format": format, "discover": discover,
+        "ranker": recommendations.RECOMMENDER_VERSION,
+        "analyser": content_analysis.ANALYZER_VERSION,
+        "embeddings": embedding_revision,
+        "video_catalogue": video_catalogue.catalogue_revision("platform-v1"),
         "available": available_ids, "r": own.revision if own else 0,
         "shared_r": shared.revision if shared else 0,
+        "personal_profile": private, "selected_profile": settings,
         "states": [(key, row.revision) for key, row in sorted(states.items())],
+        "video_states": _video_fingerprint(video_states, {item.video_id for item in all_items if item.video_id}),
     })).hexdigest()
     offset = _offset(cursor, fingerprint)
     page = items[offset:offset + limit]
-    return {"items": [_out(item, snapshot, private, _state(states.get(item.id))) for item in page],
+    return {"items": [_out(item, snapshot, private, effective_states[item.id], reasons.get(item.id)) for item in page],
             "mode": mode, "total": len(items), "catalogue_revision": snapshot.revision,
+            "format": format, "discovery": discover,
             "next_cursor": _cursor(fingerprint, offset + limit) if offset + limit < len(items) else None}
 
 
@@ -360,7 +481,7 @@ async def set_author_state(author_id: str, body: AuthorStateIn, user: User = Dep
     author = _require_author(snapshot, author_id)
     async with user_lock(session, user.id):
         row = await session.get(ContentPreferences, user.id, populate_existing=True)
-        profile = _profile(row)
+        profile = await _reader_profile(session, user.id, row)
         changed = False
         for field, enabled in body.model_dump(exclude_unset=True).items():
             key = "followed_author_ids" if field == "followed" else "hidden_author_ids"
@@ -383,9 +504,10 @@ async def set_author_state(author_id: str, body: AuthorStateIn, user: User = Dep
 async def publication(content_id: str, user: User = Depends(consented_user),
                       session: AsyncSession = Depends(get_session)):
     snapshot = _snapshot()
-    return _out(_require_item(snapshot, content_id), snapshot,
+    item = _require_item(snapshot, content_id)
+    return _out(item, snapshot,
                 _profile(await session.get(ContentPreferences, user.id)),
-                _state(await session.get(ContentState, (user.id, content_id))))
+                _item_state(item, snapshot, await _states(session, user.id), await _video_states(session, user.id)))
 
 
 @router.patch("/{content_id}/state")
@@ -394,6 +516,38 @@ async def set_state(content_id: str, body: StateIn, user: User = Depends(consent
     snapshot = _snapshot()
     item = _require_item(snapshot, content_id)
     async with user_lock(session, user.id):
+        if item.video_id:
+            # /videos and /content share this lock and the existing video row.
+            # Older editorial wrappers may also have ContentState marks; an
+            # explicit undo clears the same field in those rows atomically.
+            video_row = await session.get(VideoState, (user.id, item.video_id), populate_existing=True)
+            linked_ids = [linked.id for linked in snapshot.items if linked.video_id == item.video_id]
+            linked_rows = (await session.execute(select(ContentState).where(
+                ContentState.user_id == user.id, ContentState.content_id.in_(linked_ids))
+                .execution_options(populate_existing=True))).scalars().all()
+            linked_states = {row.content_id: row for row in linked_rows}
+            videos = {item.video_id: video_row} if video_row else {}
+            state = _item_state(item, snapshot, linked_states, videos)
+            changes = body.model_dump(exclude_unset=True)
+            if any(state[key] != value for key, value in changes.items()):
+                data = json.loads(video_row.data) if video_row else {"liked": False, "saved": False, "hidden": False}
+                data.update({"liked" if key == "useful" else key: value for key, value in changes.items()})
+                data["content_overrides"] = sorted(set(data.get("content_overrides", []))
+                                                    | {recommendations.VIDEO_FIELDS[key] for key in changes})
+                data["content_revision"] = int(data.get("content_revision", 0)) + 1
+                if video_row is None:
+                    session.add(VideoState(user_id=user.id, video_id=item.video_id, data=json.dumps(data)))
+                else:
+                    video_row.data, video_row.updated_at = json.dumps(data), utcnow()
+                for linked in linked_rows:
+                    prior = _state(linked)
+                    if any(prior.get(key, False) != value for key, value in changes.items()):
+                        prior.update(changes)
+                        linked.data, linked.revision, linked.updated_at = json.dumps(prior), linked.revision + 1, utcnow()
+                state.update(changes)
+                await enqueue_invalidation(session, [user.id], ["solo"])
+            await session.commit()
+            return _out(item, snapshot, _profile(await session.get(ContentPreferences, user.id)), state)
         row = await session.get(ContentState, (user.id, content_id), populate_existing=True)
         state = _state(row)
         changes = body.model_dump(exclude_unset=True)

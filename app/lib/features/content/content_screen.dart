@@ -12,19 +12,27 @@ class ContentScreen extends ConsumerWidget {
   const ContentScreen({
     super.key,
     this.mode = ContentMode.personal,
+    this.format = ContentFormat.all,
+    this.discover = false,
     this.authorId,
     this.seriesId,
     this.title,
   });
   final ContentMode mode;
+  final ContentFormat format;
+  final bool discover;
   final String? authorId, seriesId, title;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final access = ref.watch(videoAccessProvider);
     if (!access.allowed) return const ContentUnavailable();
     return _ContentFeed(
-      key: ValueKey('${access.revision}:${mode.name}:$authorId:$seriesId'),
+      key: ValueKey(
+        '${access.revision}:${mode.name}:${format.name}:$discover:$authorId:$seriesId',
+      ),
       mode: mode,
+      format: format,
+      discover: discover,
       authorId: authorId,
       seriesId: seriesId,
       title: title,
@@ -36,11 +44,15 @@ class _ContentFeed extends ConsumerStatefulWidget {
   const _ContentFeed({
     super.key,
     required this.mode,
+    required this.format,
+    required this.discover,
     this.authorId,
     this.seriesId,
     this.title,
   });
   final ContentMode mode;
+  final ContentFormat format;
+  final bool discover;
   final String? authorId, seriesId, title;
   @override
   ConsumerState<_ContentFeed> createState() => _ContentFeedState();
@@ -52,6 +64,8 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
   final _scroll = ScrollController();
   final _items = <Publication>[];
   late ContentMode _mode;
+  late ContentFormat _format;
+  late bool _discover;
   String _query = '';
   String? _cursor, _notice;
   Object? _error;
@@ -63,6 +77,8 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
   void initState() {
     super.initState();
     _mode = widget.mode;
+    _format = widget.format;
+    _discover = widget.discover && _mode == ContentMode.personal && !_filtered;
     Future.microtask(() {
       if (mounted) _load();
     });
@@ -85,11 +101,24 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
       }
     });
     try {
+      final settings = await ref.read(contentSettingsProvider.future);
+      if (!mounted || generation != _generation || settings == null) return;
+      if (!settings.unifiedFeed &&
+          (_format != ContentFormat.all || _discover)) {
+        setState(() {
+          _format = ContentFormat.all;
+          _discover = false;
+          _notice =
+              'Общая подборка обновляется. Пока доступны прежние материалы.';
+        });
+      }
       final data = await contentRequest(
         'GET',
         '/content/feed',
         query: {
           'mode': _mode.name,
+          if (settings.unifiedFeed) 'format': _format.name,
+          if (_discover) 'discover': true,
           'limit': 20,
           if (more) 'cursor': _cursor,
           if (_query.isNotEmpty) 'q': _query,
@@ -135,9 +164,36 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
     if (_mode == mode) return;
     setState(() {
       _mode = mode;
+      _discover = false;
       _notice = null;
     });
+    if (_scroll.hasClients) _scroll.jumpTo(0);
     _load();
+  }
+
+  void _changeFormat(ContentFormat format) {
+    if (_format == format) return;
+    setState(() {
+      _format = format;
+      _notice = null;
+    });
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    _load();
+  }
+
+  void _toggleDiscover() {
+    if (_mode != ContentMode.personal || _filtered) return;
+    setState(() {
+      _discover = !_discover;
+      _notice = null;
+    });
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    _load();
+  }
+
+  Future<void> _open(Publication item) async {
+    await context.push(item.openLocation);
+    if (mounted && item.isVideo) invalidateContent(ref);
   }
 
   void _submitSearch() {
@@ -197,20 +253,22 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.title ?? (widget.authorId == null ? 'Публикации' : 'Автор'),
+          widget.title ??
+              (widget.authorId != null
+                  ? 'Автор'
+                  : _mode == ContentMode.saved
+                  ? 'Сохранённое'
+                  : 'Интересное'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
         actions: [
-          IconButton(
-            tooltip: 'Авторы',
-            icon: const Icon(Icons.people_outline),
-            onPressed: () => context.push('/content/authors'),
-          ),
-          if (canChoose)
+          if (_mode != ContentMode.saved)
             IconButton(
-              tooltip: shared ? 'Общие темы' : 'Мои интересы',
-              icon: const Icon(Icons.tune),
+              tooltip: 'Сохранённое',
+              icon: const Icon(Icons.bookmark_outline),
               onPressed: () => context.push(
-                '/content/preferences?scope=${shared ? 'shared' : 'personal'}',
+                contentLocation(mode: ContentMode.saved, format: _format),
               ),
             ),
         ],
@@ -229,39 +287,121 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
               if (widget.authorId != null)
                 ContentAuthorHeader(authorId: widget.authorId!),
               if (!_filtered) ...[
-                const Text(
-                  'Есть что попробовать',
-                  style: TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Практические идеи, объяснения и публикации авторов. Читай в своём темпе и выбирай, чем поделиться.',
-                  style: TextStyle(color: VColors.soft, height: 1.5),
+                if (_mode == ContentMode.saved) ...[
+                  const Text(
+                    'Полезное на потом',
+                    style: TextStyle(fontSize: 23, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Text(
+                  _mode == ContentMode.saved
+                      ? 'Видео и статьи, которые ты сохранил(а). Эта коллекция видна только тебе.'
+                      : 'Видео, статьи и полезные идеи в одной подборке.',
+                  style: const TextStyle(color: VColors.soft, height: 1.5),
                 ),
                 const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    for (final mode in ContentMode.values)
-                      ChoiceChip(
-                        label: Text(mode.title),
-                        selected: _mode == mode,
-                        onSelected: (_) => _changeMode(mode),
-                      ),
-                  ],
-                ),
+                if (_mode == ContentMode.saved)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => _changeMode(ContentMode.personal),
+                      icon: const Icon(Icons.arrow_back, size: 18),
+                      label: const Text('Вернуться в «Интересное»'),
+                    ),
+                  )
+                else
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      for (final mode in const [
+                        ContentMode.personal,
+                        ContentMode.following,
+                        ContentMode.shared,
+                      ])
+                        ChoiceChip(
+                          key: ValueKey('content-mode-${mode.name}'),
+                          label: Text(mode.title),
+                          selected: _mode == mode,
+                          onSelected: (_) => _changeMode(mode),
+                        ),
+                    ],
+                  ),
                 const SizedBox(height: 12),
                 Text(
                   shared
-                      ? 'Общие темы выбираете вы вдвоём. Личные сохранения и подписки партнёру не видны.'
-                      : 'Твои интересы, подписки, отметки и сохранения видишь только ты.',
+                      ? 'Здесь общие темы. Личные интересы партнёра сюда не попадают.'
+                      : _mode == ContentMode.following
+                      ? 'Материалы выбранных авторов на любые темы. Подписки видишь только ты.'
+                      : 'Личные интересы и отметки видишь только ты.',
                   style: const TextStyle(
                     fontSize: 12,
                     color: VColors.muted,
                     height: 1.45,
                   ),
                 ),
+                if (_mode == ContentMode.following)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => context.push('/content/authors'),
+                      icon: const Icon(Icons.people_outline, size: 18),
+                      label: const Text('Все авторы'),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final format in ContentFormat.values)
+                    ChoiceChip(
+                      key: ValueKey('content-format-${format.name}'),
+                      label: Text(format.title),
+                      selected: _format == format,
+                      onSelected:
+                          current?.unifiedFeed == true ||
+                              format == ContentFormat.all
+                          ? (_) => _changeFormat(format)
+                          : null,
+                    ),
+                ],
+              ),
+              if (current != null && !current.unifiedFeed)
+                const Padding(
+                  padding: EdgeInsets.only(top: 10),
+                  child: Text(
+                    'Видео и новые фильтры появятся после обновления подборки. Сейчас можно читать и сохранять доступные материалы.',
+                    key: ValueKey('content-compatibility-notice'),
+                    style: TextStyle(color: VColors.muted, height: 1.45),
+                  ),
+                ),
+              if (!_filtered &&
+                  _mode == ContentMode.personal &&
+                  current?.unifiedFeed == true) ...[
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const ValueKey('content-discover'),
+                    onPressed: _toggleDiscover,
+                    icon: Icon(
+                      _discover ? Icons.arrow_back : Icons.explore_outlined,
+                      size: 18,
+                    ),
+                    label: Text(
+                      _discover ? 'Вернуться к моим темам' : 'Открыть новое',
+                    ),
+                  ),
+                ),
+                if (_discover)
+                  const Text(
+                    'Сейчас показываем и другие темы. Это временный просмотр: твои интересы не меняются.',
+                    key: ValueKey('content-discovery-notice'),
+                    style: TextStyle(color: VColors.gold, height: 1.45),
+                  ),
               ],
               if (widget.seriesId != null) ...[
                 const Text(
@@ -296,10 +436,7 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
                         ? (shared
                               ? 'Выбрать общие темы'
                               : 'Выбрать мои интересы')
-                        : current.topics
-                              .where((e) => selectedTopics.contains(e.id))
-                              .map((e) => e.title)
-                              .join(' · '),
+                        : '${shared ? 'Общие темы' : 'Мои интересы'} (${selectedTopics.length})',
                   ),
                 ),
               ],
@@ -311,9 +448,8 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
                 textInputAction: TextInputAction.search,
                 onSubmitted: (_) => _submitSearch(),
                 decoration: InputDecoration(
-                  labelText: _filtered
-                      ? 'Поиск в подборке'
-                      : 'Найти публикацию',
+                  labelText: 'Поиск',
+                  hintText: 'Название, тема или автор',
                   counterText: '',
                   prefixIcon: const Icon(Icons.search),
                   suffixIcon: IconButton(
@@ -355,17 +491,17 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
                   padding: const EdgeInsets.only(top: 16),
                   child: PublicationCard(
                     item: item,
-                    onOpen: () => context.push(
-                      '/content/${Uri.encodeComponent(item.id)}',
-                    ),
+                    onOpen: () => _open(item),
                     onHide: item.hidden ? null : () => _hide(item),
                   ),
                 ),
               if (_error != null)
                 ContentError(
                   error: _error!,
-                  onRetry: () =>
-                      _load(more: _items.isNotEmpty && _cursor != null),
+                  onRetry: () {
+                    ref.invalidate(contentSettingsProvider);
+                    _load(more: _items.isNotEmpty && _cursor != null);
+                  },
                 ),
               if (_loadingMore)
                 const Padding(
@@ -377,7 +513,7 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
                   padding: const EdgeInsets.only(top: 20),
                   child: OutlinedButton(
                     onPressed: () => _load(more: true),
-                    child: const Text('Ещё публикации'),
+                    child: const Text('Показать ещё'),
                   ),
                 ),
               if (!_loading &&
@@ -391,13 +527,25 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
                     style: TextStyle(color: VColors.muted, height: 1.4),
                   ),
                 ),
-              if (!_filtered)
+              if (!_filtered && _mode == ContentMode.saved)
                 Padding(
                   padding: const EdgeInsets.only(top: 18),
-                  child: TextButton.icon(
-                    onPressed: () => context.push('/videos'),
-                    icon: const Icon(Icons.smart_display_outlined),
-                    label: const Text('Открыть прежнюю видеоподборку'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Divider(),
+                      const Text(
+                        'Ролики из старой подборки, которые ты сохранил(а) раньше, доступны в архиве.',
+                        style: TextStyle(color: VColors.muted, height: 1.4),
+                      ),
+                      TextButton.icon(
+                        key: const ValueKey('content-legacy-saved'),
+                        onPressed: () =>
+                            context.push('/videos?mode=saved&legacy=true'),
+                        icon: const Icon(Icons.history, size: 18),
+                        label: const Text('Архив сохранённых видео'),
+                      ),
+                    ],
                   ),
                 ),
             ],
@@ -411,12 +559,15 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
     String title, text;
     if (_query.isNotEmpty) {
       title = 'По запросу ничего не найдено';
-      text = 'Попробуй другое слово или сбрось поиск. Чужие темы не добавляем в эту подборку.';
+      text = _discover
+          ? 'Попробуй другое слово, сбрось поиск или выбери другой формат.'
+          : 'Попробуй другое слово или сбрось поиск. Поиск учитывает выбранные темы и формат.';
     } else if (_mode == ContentMode.shared &&
         (_noPair || settings?.hasPair == false)) {
       title = 'Подборка для двоих';
       text = 'После соединения пары здесь можно отдельно выбрать общие темы. Личная подборка уже доступна.';
     } else if (!_filtered &&
+        !_discover &&
         (_mode == ContentMode.personal &&
                 settings?.personalTopics.isEmpty == true ||
             _mode == ContentMode.shared &&
@@ -426,14 +577,22 @@ class _ContentFeedState extends ConsumerState<_ContentFeed>
           : 'Что интересно тебе?';
       text = 'Выбери темы выше. Подборка следует этому выбору и не подменяет его случайными публикациями.';
     } else if (_mode == ContentMode.following) {
-      title = 'Публикации любимых авторов';
-      text = 'Подпишись на автора на его странице. Подписка видна только тебе.';
+      title = settings?.followedAuthorIds.isNotEmpty == true
+          ? 'У этих авторов пока нет подходящих материалов'
+          : 'Материалы любимых авторов';
+      text = settings?.followedAuthorIds.isNotEmpty == true
+          ? 'Попробуй выбрать «Всё» или вернись позже. Подписки сохранены.'
+          : 'Подпишись на автора на его странице. Подписка видна только тебе.';
     } else if (_mode == ContentMode.saved) {
       title = 'То, к чему хочется вернуться';
-      text = 'Нажми «Сохранить» в публикации — она появится здесь. Эту подборку видишь только ты.';
+      text = 'Нажми «Сохранить» у видео или статьи — материал появится здесь. Для всех форматов выбери «Всё».';
     } else {
-      title = 'Пока нет подходящих публикаций';
-      text = 'В каталоге пока нет материалов с этими условиями. Можно изменить темы и язык или открыть страницу автора.';
+      title = _format == ContentFormat.video
+          ? 'Пока нет видео по этим условиям'
+          : _format == ContentFormat.article
+          ? 'Пока нет статей по этим условиям'
+          : 'Пока нет подходящих материалов';
+      text = 'Каталог пополняется. Можно выбрать другой формат, изменить темы и язык или открыть автора.';
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 30),
@@ -483,7 +642,7 @@ class PublicationCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    '${item.kindLabel} · ${item.readingMinutes} мин',
+                    item.metadataLabel,
                     style: const TextStyle(color: VColors.gold, fontSize: 12),
                   ),
                 ),
@@ -498,7 +657,7 @@ class PublicationCard extends StatelessWidget {
                   ),
                 if (onHide != null)
                   PopupMenuButton<String>(
-                    tooltip: 'Действия с публикацией',
+                    tooltip: 'Действия с материалом',
                     padding: EdgeInsets.zero,
                     onSelected: (_) => onHide!(),
                     itemBuilder: (_) => [
@@ -524,10 +683,33 @@ class PublicationCard extends StatelessWidget {
               item.summary,
               style: const TextStyle(color: VColors.soft, height: 1.5),
             ),
+            if (item.recommendationReason?.isNotEmpty == true)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  item.recommendationReason!,
+                  key: ValueKey('content-reason-${item.id}'),
+                  style: const TextStyle(
+                    color: VColors.muted,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ),
             const SizedBox(height: 14),
-            Text(
-              item.author.name,
-              style: const TextStyle(color: VColors.lavender, fontSize: 13),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => context.push(
+                  '/content/authors/${Uri.encodeComponent(item.author.id)}',
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: VColors.lavender,
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.centerLeft,
+                ),
+                child: Text(item.author.name),
+              ),
             ),
             if (item.seriesTitle != null)
               Padding(
@@ -538,11 +720,18 @@ class PublicationCard extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: 14),
-            const Row(
+            Row(
               children: [
-                Text('Читать', style: TextStyle(color: VColors.gold)),
-                SizedBox(width: 6),
-                Icon(Icons.arrow_forward, size: 17, color: VColors.gold),
+                Text(
+                  item.isVideo ? 'Смотреть' : 'Читать',
+                  style: const TextStyle(color: VColors.gold),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  item.isVideo ? Icons.play_arrow : Icons.arrow_forward,
+                  size: 17,
+                  color: VColors.gold,
+                ),
               ],
             ),
           ],

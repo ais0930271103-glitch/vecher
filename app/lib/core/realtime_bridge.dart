@@ -119,6 +119,7 @@ class _RealtimeBridgeState extends ConsumerState<RealtimeBridge>
       ref.invalidate(videoSettingsProvider);
       ref.invalidate(videoFeedProvider);
       ref.invalidate(shortVideoProvider);
+      ref.invalidate(legacySavedVideoFeedProvider);
     } else if (scopes.contains('chat')) {
       ref.invalidate(videoFeedProvider(VideoMode.sharedCollection));
     }

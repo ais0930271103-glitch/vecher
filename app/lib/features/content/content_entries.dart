@@ -20,7 +20,7 @@ class ContentTogetherCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Читать. Пробовать. Обсуждать.',
+          'Есть что посмотреть и почитать',
           style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w600,
@@ -29,7 +29,7 @@ class ContentTogetherCard extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         const Text(
-          'Публикации и практикумы по твоим интересам: полезное для жизни и идеи для времени вдвоём.',
+          'Видео, статьи и блоги по твоим интересам. Личная и общая подборки — в одном месте.',
           style: TextStyle(color: VColors.soft, height: 1.5),
         ),
         const SizedBox(height: 16),
@@ -39,8 +39,8 @@ class ContentTogetherCard extends StatelessWidget {
           children: [
             FilledButton.icon(
               onPressed: () => context.push('/content'),
-              icon: const Icon(Icons.menu_book_outlined),
-              label: const Text('Найти интересное'),
+              icon: const Icon(Icons.explore_outlined),
+              label: const Text('Интересное'),
             ),
             OutlinedButton(
               onPressed: () => context.push('/content?mode=shared'),
@@ -51,11 +51,6 @@ class ContentTogetherCard extends StatelessWidget {
               child: const Text('Мои интересы'),
             ),
           ],
-        ),
-        TextButton.icon(
-          onPressed: () => context.push('/videos'),
-          icon: const Icon(Icons.smart_display_outlined, size: 18),
-          label: const Text('Прежняя видеоподборка'),
         ),
       ],
     ),
@@ -75,15 +70,14 @@ class ContentTodayCard extends ConsumerWidget {
         borderRadius: BorderRadius.circular(22),
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
-          onTap: () {
+          onTap: () async {
             final item = preview.isLoading || preview.hasError
                 ? null
                 : preview.valueOrNull;
-            context.push(
-              item == null
-                  ? '/content'
-                  : '/content/${Uri.encodeComponent(item.id)}',
-            );
+            await context.push(item?.openLocation ?? '/content');
+            if (context.mounted && item?.isVideo == true) {
+              invalidateContent(ref);
+            }
           },
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -91,7 +85,7 @@ class ContentTodayCard extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'НА СВОЕЙ ВОЛНЕ',
+                  'ИНТЕРЕСНОЕ',
                   style: TextStyle(
                     color: VColors.gold,
                     fontSize: 11,
@@ -103,11 +97,11 @@ class ContentTodayCard extends ConsumerWidget {
                   skipLoadingOnReload: false,
                   skipLoadingOnRefresh: false,
                   loading: () => const Text(
-                    'Публикации по интересам',
+                    'Видео и статьи по интересам',
                     style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
                   ),
                   error: (_, __) => const Text(
-                    'Открыть публикации',
+                    'Открыть «Интересное»',
                     style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600),
                   ),
                   data: (item) => Column(
@@ -123,7 +117,7 @@ class ContentTodayCard extends ConsumerWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        item?.summary ?? 'Выбери темы — соберём подборку практикумов и публикаций.',
+                        item?.summary ?? 'Выбери темы — соберём подборку видео, статей и полезных идей.',
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -135,7 +129,7 @@ class ContentTodayCard extends ConsumerWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 10),
                           child: Text(
-                            '${item.author.name} · ${item.readingMinutes} мин',
+                            '${item.author.name} · ${item.metadataLabel}',
                             style: const TextStyle(
                               color: VColors.muted,
                               fontSize: 12,
@@ -169,12 +163,12 @@ class ContentPersonalCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Мои публикации',
+          'Интересное',
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 6),
         const Text(
-          'Личная подборка, любимые авторы и полезное на потом.',
+          'Видео и статьи для тебя, любимые авторы и сохранённое.',
           style: TextStyle(color: VColors.soft, height: 1.4),
         ),
         const SizedBox(height: 10),
