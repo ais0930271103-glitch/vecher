@@ -1,0 +1,71 @@
+name: Release14 restore and video rehearsal
+
+on:
+  pull_request:
+    paths:
+      - "infra/staging/release14/**"
+      - ".github/workflows/release14-rehearsal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release14:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install test dependencies
+        run: |
+          python -m pip install -r backend/requirements-dev.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          command -v pwsh
+      - name: Release tools and actual PowerShell with offline command doubles
+        env:
+          VECHER_REQUIRE_MEDIA_TOOLS: "1"
+        run: |
+          export VECHER_PWSH="$(command -v pwsh)"
+          python -m pytest -q infra/staging/release14 --junitxml="$RUNNER_TEMP/release14-tools.xml"
+      - name: Materialize the exact old and new application sources
+        run: |
+          test "$(git rev-parse 40e43d85a2e434d4ee2090884a872a507f60fc93^{tree})" = eb38addc70e020c698e7663b8f3fd0ce39def646
+          mkdir -p "$RUNNER_TEMP/release14-old" "$RUNNER_TEMP/release14-new"
+          git archive 713b6b34819a6df382da03d5213135986d7c0c0c backend | tar -x -C "$RUNNER_TEMP/release14-old"
+          git archive 40e43d85a2e434d4ee2090884a872a507f60fc93 backend | tar -x -C "$RUNNER_TEMP/release14-new"
+      - name: Build and pin container images
+        run: |
+          docker build --iidfile "$RUNNER_TEMP/release14-old.iid" "$RUNNER_TEMP/release14-old/backend"
+          docker build --iidfile "$RUNNER_TEMP/release14-api.iid" "$RUNNER_TEMP/release14-new/backend"
+          docker build --iidfile "$RUNNER_TEMP/release14-worker.iid" -f "$RUNNER_TEMP/release14-new/backend/Dockerfile.media-worker" "$RUNNER_TEMP/release14-new/backend"
+          docker pull postgres:16-alpine
+          docker image inspect postgres:16-alpine --format '{{.Id}}' > "$RUNNER_TEMP/release14-db.iid"
+      - name: Real PostgreSQL16 backup, restore, migration, recovery and media chain
+        run: |
+          sudo python3 infra/staging/release14/server_release.py rehearse --fixture \
+            --workspace "$RUNNER_TEMP/release14-lab" \
+            --backup-dir "$RUNNER_TEMP/release14-fixture-checkpoint" \
+            --old-api-image "$(cat "$RUNNER_TEMP/release14-old.iid")" \
+            --api-image "$(cat "$RUNNER_TEMP/release14-api.iid")" \
+            --worker-image "$(cat "$RUNNER_TEMP/release14-worker.iid")" \
+            --postgres-image "$(cat "$RUNNER_TEMP/release14-db.iid")" \
+            | tee "$RUNNER_TEMP/release14-rehearsal.log"
+          grep -Fx 'RELEASE14_RESTORE_REHEARSAL_OK' "$RUNNER_TEMP/release14-rehearsal.log"
+      - name: Keep test results only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release14-rehearsal-results
+          path: |
+            ${{ runner.temp }}/release14-tools.xml
+            ${{ runner.temp }}/release14-rehearsal.log
+          if-no-files-found: ignore
+          retention-days: 14
