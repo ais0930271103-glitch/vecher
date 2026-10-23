@@ -25,7 +25,7 @@ $VecherRuntimeHash = '520fb35ae85b4778f584fd4023d048fb69ad7b9afffcaba3a6d750b9fb
 $VecherOldExpectedBytes = [long]36591005
 $VecherOldExpectedHash = 'a87d14f11e874f81509e4c6964f1c7355103a61e24d4e279ff61e454102bc1bc'
 $VecherCertificateHash = 'bf3d541231287a7e37629088f470d82079d6b1577d0692cceeb8597779d520c1'
-$VecherPublisherExpectedHash = '199e5cb0cda2bf1b4ac2ec595ef26c57a1b324092005cf57d6257e956b75669c'
+$VecherPublisherExpectedHash = '5b6b09c19e8ccffac377fc52e493a273e8e2eb2729327282fd6874ed8a5b932d'
 $VecherMaxApkBytes = [long]209715200
 $VecherUtf8 = New-Object Text.UTF8Encoding($false, $true)
 $VecherRepo = [IO.Path]::GetFullPath($RepoPath)
@@ -426,7 +426,7 @@ if (-not (Test-Path -LiteralPath $VecherOldApk -PathType Leaf)) {
 }
 if ((Get-Item -LiteralPath $VecherOldApk).Length -ne $VecherOldExpectedBytes -or
     (Get-VecherHash $VecherOldApk) -cne $VecherOldExpectedHash) {
-    throw 'The local APK13 does not match the published build12 bytes. Publication stopped.'
+    throw 'The local APK13 does not match the published build13 bytes. Publication stopped.'
 }
 if (-not $AndroidSdk) {
     $VecherSdkCandidates = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT)

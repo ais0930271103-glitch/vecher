@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -167,17 +168,17 @@ def test_lab_restore_uses_owned_database_and_streaming_input(tmp_path):
     helper=tmp_path/'helper';helper.write_text('pass')
     dump=tmp_path/'db.dump';dump.write_bytes(b'bounded fixture')
     events=[]
-    class Commands:
+    class Docker:
         def run(self,args,**kwargs):
             assert kwargs.get('data') is None
             assert kwargs['input_file'].fileno()>=0
             events.append(args)
-    class Docker:
-        commands=Commands()
         def sql(self,*args):events.append(args)
-    lab=r.Lab(Docker(),tmp_path/'lab',{'api':IMAGE},keys='ring',helper=helper)
+        def exists(self,*_):return False
+    lab=r.Lab(Docker(),tmp_path/'lab',{'api':IMAGE,'db':IMAGE},keys='ring',helper=helper)
     lab.restore(dump,'vecher_restore')
     assert '--single-transaction' in events[-1] and '--exit-on-error' in events[-1]
+    assert events[-1][0]=='run' and '--name' in events[-1] and '--label' in events[-1]
     with pytest.raises(r.ReleaseError,match='UNSAFE_DATABASE_NAME'):
         lab.restore(dump,'vecher; DROP DATABASE postgres')
 
@@ -220,7 +221,101 @@ def test_rollback_old_marker_still_requires_equal_data_before_restart(release):
         return json.dumps({'users':{'rows':1,'sha256':'changed'}}).encode()
     release.one_live=one
     with pytest.raises(r.ReleaseError,match='OLD_IMAGE_RESTORE_DATA_MISMATCH'):release.rollback()
-    assert not commands
+    assert not any(command[0]=='start' for command in commands)
+
+
+def test_live_timeout_stops_pinned_container_and_clears_durable_entry(release):
+    events=[]
+    release.live_environment=lambda:{'VECHER_DATABASE_URL':'test-placeholder'}
+    class Docker:
+        def run(self,args,**kwargs):
+            if args[0]=='run':
+                recorded=r.load_json(release.checkpoint/'journal.json')['temporary_containers']
+                assert recorded[0]['name']==args[args.index('--name')+1]
+                events.append('launch')
+                raise r.ReleaseError('LIVE_ISOLATED_COMMAND_UNAVAILABLE_OR_TIMEOUT')
+            assert args==['rm','-f','owned-id'];events.append('remove');return b''
+        def exists(self,*_):return True
+        def inspect(self,*_):
+            events.append('verify')
+            return {'Id':'owned-id','Image':OTHER_IMAGE,'Config':{'Labels':{
+                'vecher.release14.checkpoint':release.checkpoint.name}}}
+    release.docker=Docker()
+    with pytest.raises(r.ReleaseError,match='UNAVAILABLE_OR_TIMEOUT'):
+        release.one_live(['python','-m','app.migrate','upgrade'])
+    assert events==['launch','verify','remove']
+    assert r.load_json(release.checkpoint/'journal.json')['temporary_containers']==[]
+
+
+def test_lab_timeout_stops_owned_container_before_return(tmp_path):
+    helper=tmp_path/'helper';helper.write_text('pass')
+    events=[]
+    lab=r.Lab(None,tmp_path/'lab',{'api':IMAGE,'db':IMAGE},keys='ring',helper=helper)
+    class Docker:
+        def run(self,args,**kwargs):
+            if args[0]=='run':events.append('run');raise r.ReleaseError('TIMEOUT')
+            assert args==['rm','-f','owned'];events.append('cleanup');return b''
+        def exists(self,*_):return True
+        def inspect(self,*_):return {'Id':'owned','Config':{'Labels':{'vecher.release14':lab.token}}}
+    lab.docker=Docker()
+    with pytest.raises(r.ReleaseError,match='TIMEOUT'):
+        lab.one(IMAGE,lab.environment('vecher'),['python','-m','app.migrate','upgrade'])
+    assert events==['run','cleanup'] and lab.containers==[]
+
+
+def test_crash_recovery_cleans_migrators_before_any_database_command(release):
+    name=release.temporary(OTHER_IMAGE,'once')
+    events=[]
+    private_json(release.checkpoint/'fingerprint.json',{'users':{'rows':1,'sha256':'original'}})
+    release.verify_backup=lambda:{'trees':{}}
+    class Docker:
+        def exists(self,*_):return True
+        def inspect(self,value):
+            if value==name:
+                return {'Id':'migrator','Image':OTHER_IMAGE,'Config':{'Labels':{
+                    'vecher.release14.checkpoint':release.checkpoint.name}}}
+            return {'Image':IMAGE,'State':{'Running':False}}
+        def run(self,args,**kwargs):events.append(args[0]);return b''
+        def sql(self,*args):events.append('sql');return (r.OLD_SCHEMA+'\n').encode()
+    release.docker=Docker()
+    def one(command,**kwargs):
+        if 'app.migrate' in command:return ('SCHEMA_HEAD_OK='+r.OLD_SCHEMA).encode()
+        return b'{}'
+    release.one_live=one
+    with pytest.raises(r.ReleaseError,match='OLD_IMAGE_RESTORE_DATA_MISMATCH'):release.rollback()
+    assert events.index('rm')<events.index('sql') and 'start' not in events
+
+
+def test_recovery_refuses_unjournaled_owned_command_before_database_access(release):
+    class Docker:
+        def run(self,*args,**kwargs):return b'unknown-container'
+        def sql(self,*_):pytest.fail('Unknown process must be resolved first')
+        def inspect(self,*_):pytest.fail('Recovery must stop before database work')
+    release.docker=Docker()
+    with pytest.raises(r.ReleaseError,match='UNJOURNALED_TEMPORARY_CONTAINER'):release.rollback()
+
+
+@pytest.mark.parametrize('rollback',[False,True])
+def test_database_swap_is_one_bounded_transaction_from_postgres(rollback):
+    calls=[]
+    class Docker:
+        def sql(self,*args):calls.append(args);return b''
+    r.swap_databases(Docker(),'db','vecher','recovered','retained',rollback_after_first=rollback)
+    assert len(calls)==1 and calls[0][2]=='postgres'
+    sql=calls[0][1]
+    assert sql.index('BEGIN;')<sql.index('ALTER DATABASE "vecher" RENAME TO "retained";')
+    assert 'statement_timeout' in sql and 'lock_timeout' in sql
+    if rollback:
+        assert sql.endswith('ROLLBACK;') and sql.count('ALTER DATABASE')==1
+    else:
+        assert sql.endswith('COMMIT;') and sql.count('ALTER DATABASE')==2
+        assert sql.index('RENAME TO "retained";')<sql.index('ALTER DATABASE "recovered" RENAME TO "vecher";')
+
+
+@pytest.mark.parametrize('names',[('postgres','safe','retained'),('vecher','vecher','retained'),('vecher','safe; DROP DATABASE vecher','retained')])
+def test_database_swap_rejects_unsafe_names(names):
+    with pytest.raises(r.ReleaseError,match='UNSAFE_DATABASE_SWAP'):
+        r.swap_databases(None,'db',*names)
 
 
 def test_backup_tampering_blocks_restore(release):
@@ -240,6 +335,41 @@ def test_media_network_cannot_connect_db_to_external_network(release):
     release.docker=Docker()
     with pytest.raises(r.ReleaseError,match='INVALID_MEDIA_NETWORK'):release.media_network()
     assert not any('connect' in argv or 'create' in argv for argv in mutations)
+
+
+def test_media_network_requires_database_dns_alias_when_already_attached(release):
+    class Docker:
+        def run(self,*args,**kwargs):return b'existing'
+        def inspect(self,*_):return {'Internal':True,'Labels':{
+            'com.docker.compose.project':'vecher-test','com.docker.compose.network':'media-processing'}}
+        def service(self,*_):return {'Id':'db','Image':IMAGE,'NetworkSettings':{'Networks':{
+            'vecher-test_media-processing':{'Aliases':['container-name']}}}}
+    release.docker=Docker()
+    with pytest.raises(r.ReleaseError,match='MEDIA_DATABASE_ALIAS_MISSING'):release.media_network()
+
+
+@pytest.mark.parametrize('reachable',[True,False])
+def test_keyless_worker_probe_requires_actual_database_response(monkeypatch,capsys,reachable):
+    monkeypatch.delenv('VECHER_DATA_KEYS',raising=False)
+    monkeypatch.setenv('VECHER_JWT_SECRET','parent-placeholder')
+    events=[]
+    async def dispose():events.append('disposed')
+    engine=SimpleNamespace(dispose=dispose)
+    async def check(value):
+        assert value is engine and len(os.environ['VECHER_JWT_SECRET'])>=48
+        events.append('queried')
+        if not reachable:raise ConnectionError('synthetic database unavailable')
+        return r.SCHEMA
+    for name,attributes in {'app':{},'app.config':{'get_settings':lambda:SimpleNamespace(blogs_enabled=True)},
+                            'app.db':{'engine':engine},'app.migrate':{'check':check}}.items():
+        module=ModuleType(name);module.__dict__.update(attributes);monkeypatch.setitem(sys.modules,name,module)
+    if reachable:
+        exec(r.WORKER_DB_CODE,{})
+        assert json.loads(capsys.readouterr().out)=={'schema_head':r.SCHEMA,'worker_database_ok':True}
+        assert events==['queried','disposed']
+    else:
+        with pytest.raises(ConnectionError):exec(r.WORKER_DB_CODE,{})
+        assert capsys.readouterr().out=='' and events==['queried']
 
 
 def test_compose_scope_is_explicit_and_never_starts_dependencies(release):

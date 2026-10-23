@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tarfile
 import time
+from urllib.parse import unquote, urlsplit
 import uuid
 
 SOURCE = "40e43d85a2e434d4ee2090884a872a507f60fc93"
@@ -422,7 +423,7 @@ class Lab:
             env['VECHER_RELEASE14_SYNTHETIC_REHEARSAL'] = '1'
         return env
 
-    def one(self, image, env, command, *, code=None, mounts=(), timeout=300):
+    def one(self, image, env, command, *, code=None, input_file=None, mounts=(), timeout=300):
         path = self.workspace / ("env-" + uuid.uuid4().hex)
         write_env(path, env)
         name=self.prefix+'-once-'+uuid.uuid4().hex[:8]
@@ -433,7 +434,7 @@ class Lab:
         for mount in mounts:
             args += ["--mount", mount]
         try:
-            return self.docker.run([*args,image,*command], data=code.encode() if code else None,
+            return self.docker.run([*args,image,*command], data=code.encode() if code else None,input_file=input_file,
                                    timeout=timeout, label="LAB_ONE_SHOT")
         finally:
             self.remove_container(name)
@@ -450,9 +451,9 @@ class Lab:
         self.docker.sql(self.db, 'CREATE DATABASE "' + database + '" OWNER vecher;')
         with regular(dump).open('rb') as incoming:
             # File-backed stdin avoids holding the backup in memory.
-            self.docker.commands.run(["docker","--context","default","exec","-i",self.db,"pg_restore",
-                "--exit-on-error","--single-transaction","-U","vecher","-d",database], input_file=incoming,
-                timeout=900,label="LAB_RESTORE")
+            self.one(self.images['db'],{'PGHOST':'db','PGUSER':'vecher','PGPASSWORD':self.password,
+                     'PGDATABASE':database,'PGCONNECT_TIMEOUT':'15'},
+                ['pg_restore','--exit-on-error','--single-transaction'],input_file=incoming,timeout=900)
 
     def fingerprint(self, image, database):
         return json.loads(self.one(image,self.environment(database),["python","-"],code=FINGERPRINT_CODE))
@@ -533,6 +534,27 @@ def verify_legacy(before, after):
     require(set(after)-set(before)==NEW_TABLES and all(after[n]['rows']==0 for n in NEW_TABLES),"MIGRATION_TABLES_MISMATCH")
 
 
+def swap_databases(docker, container, current, recovered, retained, *, rollback_after_first=False):
+    """One PostgreSQL transaction; the CI rehearsal invokes this exact helper.
+
+    Connect to postgres, which is never renamed. The first-rename rollback
+    exercises the interruption boundary before the real two-rename commit.
+    Server-side timeouts also bound a psql process whose Docker CLI was lost.
+    """
+    names=(current,recovered,retained)
+    require(all(IDENT.fullmatch(name) and name not in {'postgres','template0','template1'}
+                for name in names) and len(set(names))==3,'UNSAFE_DATABASE_SWAP')
+    statements=["SET lock_timeout='30s';", "SET statement_timeout='60s';",
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('"+
+        current+"','"+recovered+"') AND pid<>pg_backend_pid();", 'BEGIN;',
+        'ALTER DATABASE "'+current+'" RENAME TO "'+retained+'";']
+    if rollback_after_first:
+        statements.append('ROLLBACK;')
+    else:
+        statements += ['ALTER DATABASE "'+recovered+'" RENAME TO "'+current+'";', 'COMMIT;']
+    return docker.sql(container,'\n'.join(statements),'postgres')
+
+
 def rehearse(docker, workspace, images, backup, keys, helper, *, fixture=False):
     """Shared real-Docker gate used by production and CI; no production writes."""
     for image in images.values():
@@ -567,7 +589,15 @@ asyncio.run(main())
         lab.restore(dump,'vecher_recovered')
         require(lab.fingerprint(images['old_api'],'vecher_recovered')==before,'ROLLBACK_RESTORE_DATA_MISMATCH')
         require(lab.migration(images['old_api'],'vecher_recovered','check')=='SCHEMA_HEAD_OK='+OLD_SCHEMA,'ROLLBACK_SCHEMA_MISMATCH')
-        lab.api_check(images['old_api'],'vecher_recovered',version='0.8.0',schema=OLD_SCHEMA)
+        swap_databases(docker,lab.db,'vecher_restore','vecher_recovered','vecher_retained',rollback_after_first=True)
+        require(lab.migration(images['api'],'vecher_restore','check')=='SCHEMA_HEAD_OK='+SCHEMA,'RENAME_ROLLBACK_SCHEMA_MISMATCH')
+        verify_legacy(before,lab.fingerprint(images['api'],'vecher_restore'))
+        require(lab.fingerprint(images['old_api'],'vecher_recovered')==before,'RENAME_ROLLBACK_DATA_MISMATCH')
+        swap_databases(docker,lab.db,'vecher_restore','vecher_recovered','vecher_retained')
+        require(lab.migration(images['old_api'],'vecher_restore','check')=='SCHEMA_HEAD_OK='+OLD_SCHEMA,'SWAPPED_OLD_SCHEMA_MISMATCH')
+        require(lab.fingerprint(images['old_api'],'vecher_restore')==before,'SWAPPED_OLD_DATA_MISMATCH')
+        verify_legacy(before,lab.fingerprint(images['api'],'vecher_retained'))
+        lab.api_check(images['old_api'],'vecher_restore',version='0.8.0',schema=OLD_SCHEMA)
         lab.media()
     return {'rehearsal_ok':True,'rollback_rehearsal_ok':True,'media_rehearsal_ok':True}
 
@@ -758,7 +788,7 @@ class Release:
                     'VECHER_SMTP_HOST':'','VECHER_FIREBASE_CREDENTIALS':'','VECHER_RELEASE_TOKEN':'','VECHER_BLOGS_ENABLED':'false'})
         return {k:v for k,v in env.items() if k.startswith('VECHER_')}
 
-    def one_live(self,command,*,code=None,image=None,env=None,database=None):
+    def one_live(self,command,*,code=None,input_file=None,image=None,env=None,database=None,timeout=600):
         values=env or self.live_environment()
         if database:
             require(IDENT.fullmatch(database),'UNSAFE_DATABASE_NAME')
@@ -771,8 +801,8 @@ class Release:
         for host,target in (('content','/srv/public-content'),('downloads','/srv/downloads'),('uploads','/srv/uploads'),('blog-media','/srv/blog-media')):
             if (self.root/host).exists():args+=['--mount','type=bind,source='+str(self.root/host)+',target='+target+',readonly']
         try:
-            return self.docker.run([*args,image,*command],data=code.encode() if code else None,
-                                   timeout=600,label='LIVE_ISOLATED_COMMAND')
+            return self.docker.run([*args,image,*command],data=code.encode() if code else None,input_file=input_file,
+                                   timeout=timeout,label='LIVE_ISOLATED_COMMAND')
         finally:self.remove_temporary(name)
 
     def verify_backup(self):
@@ -860,15 +890,18 @@ class Release:
             recovered='vecher_r14_restore_'+uuid.uuid4().hex[:12]
             failed='vecher_r14_retained_'+uuid.uuid4().hex[:12]
             self.docker.sql(self.journal['db_container'],'CREATE DATABASE "'+recovered+'" OWNER vecher;')
+            database_url=urlsplit(self.live_environment()['VECHER_DATABASE_URL'].replace('postgresql+asyncpg:','postgresql:',1))
+            require(database_url.scheme=='postgresql' and database_url.hostname=='db' and database_url.username=='vecher'
+                    and database_url.password is not None,'RECOVERY_DATABASE_URL_UNSUPPORTED')
+            client_env={'PGHOST':'db','PGPORT':str(database_url.port or 5432),'PGUSER':'vecher',
+                        'PGPASSWORD':unquote(database_url.password),'PGDATABASE':recovered,'PGCONNECT_TIMEOUT':'15'}
             with (self.checkpoint/'db.dump').open('rb') as incoming:
-                self.docker.run(['exec','-i',self.journal['db_container'],'pg_restore','--exit-on-error','--single-transaction',
-                    '-U','vecher','-d',recovered],input_file=incoming,timeout=900,label='RECOVERY_RESTORE')
+                self.one_live(['pg_restore','--exit-on-error','--single-transaction'],input_file=incoming,
+                              image=self.journal['db_image_id'],env=client_env,timeout=900)
             require(json.loads(self.one_live(['python','-'],code=FINGERPRINT_CODE,image=self.journal['old_api_image_id'],database=recovered))
                     ==load_json(self.checkpoint/'fingerprint.json'),'RECOVERY_DATA_MISMATCH')
             self.phase('recovery_database_swap',recovery_database=recovered,retained_database=failed)
-            self.docker.sql(self.journal['db_container'],"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='vecher' AND pid<>pg_backend_pid();")
-            self.docker.sql(self.journal['db_container'],'ALTER DATABASE vecher RENAME TO "'+failed+'";')
-            self.docker.sql(self.journal['db_container'],'ALTER DATABASE "'+recovered+'" RENAME TO vecher;')
+            swap_databases(self.docker,self.journal['db_container'],'vecher',recovered,failed)
         require(self.one_live(['python','-m','app.migrate','check'],image=self.journal['old_api_image_id']).decode().strip()
                 =='SCHEMA_HEAD_OK='+OLD_SCHEMA,'OLD_IMAGE_RESTORE_GATE_FAILED')
         require(json.loads(self.one_live(['python','-'],code=FINGERPRINT_CODE,image=self.journal['old_api_image_id']))
