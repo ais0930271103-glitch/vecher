@@ -53,6 +53,7 @@ class _VideoTopicsSheetState extends ConsumerState<VideoTopicsSheet> {
           .read(dioProvider)
           .put(
             '/videos/settings/${widget.shared ? 'shared' : 'personal'}',
+            queryParameters: videoPlaybackQuery,
             data: {
               'topics': _selected!.toList()..sort(),
               'revision': _revision,
@@ -162,9 +163,16 @@ class _VideoTopicsSheetState extends ConsumerState<VideoTopicsSheet> {
                           children: [
                             for (final topic in settings.topics)
                               FilterChip(
-                                label: Text(topic.title),
+                                label: Text(
+                                  topic.available
+                                      ? topic.title
+                                      : '${topic.title} · пока нет видео',
+                                ),
                                 selected: _selected!.contains(topic.id),
-                                onSelected: _saving
+                                onSelected:
+                                    _saving ||
+                                        (!topic.available &&
+                                            !_selected!.contains(topic.id))
                                     ? null
                                     : (selected) => setState(() {
                                         if (selected) {
@@ -198,8 +206,9 @@ class _VideoTopicsSheetState extends ConsumerState<VideoTopicsSheet> {
                 ),
               const SizedBox(height: 16),
               const Text(
-                'Ролики загружаются с Wikimedia Commons: источник получает обычный сетевой запрос. '
-                'Твои отметки остаются в «Вечере».',
+                'В новой подборке — официальный плеер RUTUBE. '
+                'Площадка получает обычные данные просмотра и может показывать рекламу. '
+                'Личные отметки остаются в «Вечере». Ранее сохранённые видео сохраняют свой источник.',
                 style: TextStyle(
                   color: VColors.muted,
                   fontSize: 11,

@@ -16,6 +16,18 @@ class ApiRequestTimeout implements Exception {
 ApiEndpoints? endpointsOf(Dio dio) =>
     dio.options.extra[_endpointsKey] as ApiEndpoints?;
 
+/// A fixed public read through the application's existing transport and routes.
+/// It never reads secure storage or attaches the account's Authorization header.
+Future<Response<dynamic>> probeApiHealth(Dio dio, {CancelToken? cancelToken}) {
+  final interceptor = dio.interceptors
+      .whereType<_ApiInterceptor>()
+      .singleOrNull;
+  if (interceptor == null) {
+    throw ArgumentError('Health checks require the trusted API client');
+  }
+  return interceptor.probeHealth(cancelToken: cancelToken);
+}
+
 /// One fixed cleanup operation while ordinary account traffic is suspended.
 /// The private grant cannot be reused for another route or a later session.
 Future<void> unregisterPushForLogout(
@@ -50,7 +62,7 @@ class _LogoutGrant {
   bool revoked = false;
 }
 
-/// Uses the OS network route, including its VPN. No proxy or TLS override.
+/// Does not bind to a network, bypass a VPN or override proxy/TLS settings.
 /// Only GET/HEAD with no body may be replayed, on transport failures only.
 Dio createApiDio({
   required ApiEndpoints endpoints,
@@ -103,10 +115,16 @@ class _Request {
       if (!cancel.isCancelled) cancel.cancel(const ApiRequestTimeout());
     });
     caller?.whenCancel.then((_) {
+      // Dio can finish cancellation before an error interceptor observes this
+      // request. Retire its deadline here, including during secure-storage IO.
+      finish();
       // Streaming downloads are still active after their headers were returned.
       if (!cancel.isCancelled) cancel.cancel('Request cancelled');
     });
-    if (caller?.isCancelled == true) cancel.cancel('Request cancelled');
+    if (caller?.isCancelled == true) {
+      finish();
+      cancel.cancel('Request cancelled');
+    }
   }
 
   final Uri uri;
@@ -148,6 +166,12 @@ class _ApiInterceptor extends Interceptor {
   final Duration readBudget, writeBudget;
   Future<void>? _healthProbe;
 
+  Future<Response<dynamic>> probeHealth({CancelToken? cancelToken}) => dio.get(
+    '/health',
+    options: Options(extra: {_anonymousProbeKey: true}),
+    cancelToken: cancelToken,
+  );
+
   Future<void> unregisterPush({
     required String accessToken,
     required int revision,
@@ -179,10 +203,7 @@ class _ApiInterceptor extends Interceptor {
 
   Future<void> _ensureWriteRoute() => _healthProbe ??= () async {
     try {
-      final response = await dio.get(
-        '/health',
-        options: Options(extra: {_anonymousProbeKey: true}),
-      );
+      final response = await probeHealth();
       if (response.data is! Map || response.data['ok'] != true) {
         endpoints.unavailable(startingRevision: endpoints.revision);
         throw DioException(
@@ -231,6 +252,13 @@ class _ApiInterceptor extends Interceptor {
             RegExp(r'[\\\x00-\x20\x7f]').hasMatch(options.path) ||
             !endpoints.trusts(uri)) {
           throw const FormatException('Untrusted API address');
+        }
+        if (options.extra[_anonymousProbeKey] == true &&
+            (options.method.toUpperCase() != 'GET' ||
+                uri.path != '/health' ||
+                uri.hasQuery ||
+                options.data != null)) {
+          throw const FormatException('Invalid anonymous health check');
         }
         final logout = options.extra[_logoutGrantKey] as _LogoutGrant?;
         if (logout != null) {
@@ -290,6 +318,7 @@ class _ApiInterceptor extends Interceptor {
           },
         );
         options.extra[_contextKey] = state;
+        state.cancel.requestOptions = options;
         if (!_sessionValid(state)) {
           throw DioException.requestCancelled(
             requestOptions: options,

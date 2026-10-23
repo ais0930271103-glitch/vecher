@@ -50,8 +50,8 @@ class ApiEndpoints extends ChangeNotifier {
 
   /// A late response must not undo another request's successful switch.
   void succeeded(Uri origin, {required int startingRevision}) {
-    connection.value = ApiConnectionState.reachable;
     if (startingRevision != _revision || !origins.contains(origin)) return;
+    connection.value = ApiConnectionState.reachable;
     if (_selected == origin) return;
     _selected = origin;
     _revision++;

@@ -383,6 +383,42 @@ void main() {
   });
 
   test(
+    'caller cancellation retires the deadline without marking offline',
+    () async {
+      final policy = endpoints();
+      policy.succeeded(policy.primary, startingRevision: policy.revision);
+      final started = Completer<void>();
+      final adapter = _Adapter((_) {
+        started.complete();
+        return Completer<ResponseBody>().future;
+      });
+      final dio = createApiDio(
+        endpoints: policy,
+        adapter: adapter,
+        readBudget: const Duration(milliseconds: 40),
+      );
+      addTearDown(() => dio.close(force: true));
+      final cancel = CancelToken();
+      final pending = dio.get('/health', cancelToken: cancel);
+      await started.future;
+      cancel.cancel();
+      await expectLater(
+        pending,
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.type,
+            'type',
+            DioExceptionType.cancel,
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(policy.connection.value, ApiConnectionState.reachable);
+      expect(adapter.seen.length, 1);
+    },
+  );
+
+  test(
     'late primary success cannot undo another request choosing a mirror',
     () async {
       final policy = endpoints();
@@ -406,9 +442,11 @@ void main() {
       final first = dio.get('/late');
       await firstStarted.future;
       await dio.get('/other');
+      policy.unavailable(startingRevision: policy.revision);
       late.complete(_response());
       await first;
       expect(policy.selected.host, 'mirror.example.test');
+      expect(policy.connection.value, ApiConnectionState.unavailable);
     },
   );
 

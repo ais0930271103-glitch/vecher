@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/api.dart';
+import '../../core/network_diagnostics_screen.dart';
 import '../../core/privacy.dart';
 import '../../core/updater.dart';
 import '../../core/theme.dart';
@@ -337,6 +338,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 subtitle: 'Версия ${snap.data ?? '…'}',
                 onTap: () => checkForUpdate(context, manual: true),
               ),
+            ),
+            _LinkRow(
+              title: 'Проверить соединение',
+              subtitle: 'Если Вечер не открывается с VPN или без него',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const NetworkDiagnosticsScreen(),
+              )),
             ),
           ]),
           const SizedBox(height: 20),
