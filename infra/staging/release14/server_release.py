@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tarfile
 import time
+from types import ModuleType
 from urllib.parse import unquote, urlsplit
 import uuid
 
@@ -38,14 +39,17 @@ APK_BYTES = 36591005
 APK_METADATA_SHA = "9b1e1ad5c86f865e0bc3498874c28b62b44805092d357d1b4fa82dcc0e4e660e"
 PROJECT = "vecher-test"
 REPOSITORY = "https://github.com/ais0930271103-glitch/vecher"
-# Exact transport spellings for this repository; do not resolve aliases,
-# discard URL components, or rewrite the server's existing remote.
+# Canonical spellings remain useful for diagnostics. SSH aliases are authorized
+# separately against the effective fetch URL and the resolved OpenSSH config.
 REPOSITORY_ORIGINS = frozenset(
     origin + suffix
     for origin in (REPOSITORY, "git@github.com:ais0930271103-glitch/vecher",
                    "ssh://git@github.com/ais0930271103-glitch/vecher")
     for suffix in ("", ".git")
 )
+HTTPS_ORIGINS = frozenset((REPOSITORY, REPOSITORY + '.git'))
+ACCESS_HELPER_SHA = '3632ae72ffcfb1d66abb70bc58e7439cb292083bf14c127a0a98ea376075fb8b'
+SSH_COMMAND = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no'
 NEW_TABLES = {"public_blogs", "public_blog_consents", "blog_media_assets", "public_posts",
               "public_post_approvals", "public_post_reports"}
 GIB, MIB = 1024**3, 1024**2
@@ -68,7 +72,7 @@ def origin_diagnostics(urls):
 
     credentials_present denotes userinfo, including the normal git SSH user;
     it does not claim that a password or token is present. Classification
-    never authorizes a URL: only the exact, single-value allowlist does that.
+    never authorizes a URL; verified_origin_report performs that check.
     """
     details=[]
     for origin in urls:
@@ -94,6 +98,97 @@ def origin_diagnostics(urls):
             'origin_credentials_present':any(item[1] for item in details),
             'origin_host_matches_github':bool(details) and all(item[2] for item in details),
             'origin_repository_path_matches':bool(details) and all(item[3] for item in details)}
+
+
+def access_helper():
+    """Load the reviewed, hash-bound config reader without running its CLI."""
+    path=Path(__file__).with_name('diagnose_access.py')
+    try:
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+        with os.fdopen(fd,'rb') as handle:
+            info=os.fstat(handle.fileno())
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink==1,'UNSAFE_ACCESS_HELPER')
+            raw=handle.read(128*1024+1)
+        require(len(raw)<=128*1024 and hashlib.sha256(raw).hexdigest()==ACCESS_HELPER_SHA,'ACCESS_HELPER_HASH_MISMATCH')
+        module=ModuleType('release14_verified_access')
+        module.__file__=str(path)
+        exec(compile(raw,str(path),'exec'),module.__dict__)
+        return module
+    except OSError:
+        raise ReleaseError('ACCESS_HELPER_UNAVAILABLE') from None
+
+
+def verified_origin_report(repo, *, environ=None, run=None, home=None, system=None):
+    """Read only; raw URLs/configuration never leave this function.
+
+    The dependency rejects executable/dynamic config before ssh -G. The URL
+    captured here is Git's expanded *fetch* URL, not its display/push spelling.
+    No SSH authentication, config mutation, or fetch takes place in this probe.
+    """
+    report={**origin_diagnostics([]),'origin_matches_repository':False,'origin_verified':False,
+            'origin_verification_reason':'origin_unavailable','origin_effective_url_count':None,
+            'origin_effective_transport':'unknown','origin_fetch_url_rewritten':None,
+            'origin_ssh_alias_resolved':None}
+    observed={}
+    try:
+        helper=access_helper()
+        original=dict(os.environ if environ is None else environ)
+        execute=run or helper.command
+        def capture(argv,env,**kwargs):
+            argv=list(argv);env={**env,'GIT_SSH_COMMAND':SSH_COMMAND}
+            if argv[:3]==['git','-C',str(helper.REPO)]:
+                argv[2]=str(repo)
+            code,output=execute(argv,env,**kwargs)
+            if argv[:3]==['git','-C',str(repo)]:
+                if argv[3:]==['config','--null','--get-all','remote.origin.url'] and code==0 and output.endswith('\0'):
+                    observed['configured']=output[:-1].split('\0')
+                elif argv[3:]==['remote','get-url','--all','origin'] and code==0:
+                    observed['effective']=output.splitlines()
+            return code,output
+        options={'run':capture,'environ':original,'home':home}
+        if system is not None:options['system']=system
+        git,ssh=helper.access_facts(**options)
+        origins,effective=observed.get('configured',[]),observed.get('effective',[])
+        report.update(origin_diagnostics(origins))
+        report.update(origin_matches_repository=False,origin_effective_url_count=git['effective_url_count'],
+            origin_effective_transport=git['effective_category'],origin_fetch_url_rewritten=git['fetch_url_rewritten'],
+            origin_ssh_alias_resolved=ssh['alias_resolved'])
+        def decision():
+            if any(git[key] is not None and git[key]!=1 for key in ('origin_url_count','effective_url_count')):
+                return 'origin_not_unique'
+            if git['reason'] is not None:return 'origin_unavailable'
+            if len(origins)!=1 or len(effective)!=1:return 'origin_not_unique'
+            raw,target=helper.parse_origin(origins[0]),helper.parse_origin(effective[0])
+            if not raw['path_matches'] or not (origins[0] in HTTPS_ORIGINS or raw['safe_ssh']):
+                return 'configured_repository_mismatch'
+            if not target['path_matches'] or not (effective[0] in HTTPS_ORIGINS or target['safe_ssh']):
+                return 'effective_repository_mismatch'
+            if git['core_ssh_command_present'] is not False:return 'ssh_command_override'
+            if git['ssh_env_override_present'] or git['git_config_env_override_present'] or any(
+                key in original for key in ('GIT_SSH_VARIANT','GIT_CONFIG','GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR')):
+                return 'git_environment_override'
+            if git['ssh_variant_supported'] is not True:return 'ssh_variant_unsupported'
+            if effective[0] in HTTPS_ORIGINS:return 'verified_https'
+            if ssh['reason'] is not None or ssh['resolution_performed'] is not True:return 'ssh_resolution_unavailable'
+            if ssh['match_exec_present'] is not False:return 'ssh_dynamic_configuration'
+            if ssh['resolved_host_is_github'] is not True:return 'ssh_host_not_github'
+            if ssh['resolved_user_is_git'] is not True:return 'ssh_user_not_git'
+            if ssh['resolved_port_allowed'] is not True:return 'ssh_port_not_allowed'
+            if any(ssh[key] is not False for key in ('proxy_command_present','proxy_jump_present',
+                    'known_hosts_command_present','local_command_enabled','host_key_alias_present')):
+                return 'ssh_command_or_proxy_configured'
+            if ssh['host_key_verification_disabled'] is not False:return 'ssh_host_key_verification_disabled'
+            return 'verified_ssh'
+        report['origin_verification_reason']=decision()
+        report['origin_verified']=report['origin_verification_reason'] in {'verified_https','verified_ssh'}
+        report['origin_matches_repository']=report['origin_verified']
+    except ReleaseError as error:
+        report['origin_verification_reason']={
+            'ACCESS_HELPER_UNAVAILABLE':'access_helper_unavailable','ACCESS_HELPER_HASH_MISMATCH':'access_helper_hash_mismatch',
+            'UNSAFE_ACCESS_HELPER':'unsafe_access_helper'}.get(str(error),'origin_unavailable')
+    except (OSError,ValueError,KeyError,TypeError):
+        report['origin_verification_reason']='origin_unavailable'
+    return report
 
 
 def utc():
@@ -198,9 +293,9 @@ class Commands:
     def run(self, argv, *, data=None, input_file=None, output=None, timeout=120, label="COMMAND", check=True):
         require(isinstance(argv, list) and all(isinstance(a, str) for a in argv), "INVALID_ARGV")
         require(data is None or input_file is None, "AMBIGUOUS_COMMAND_INPUT")
-        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": SSH_COMMAND}
         for name in tuple(env):
-            if name.startswith("COMPOSE_") or name in {"DOCKER_HOST", "DOCKER_CONTEXT", "BASH_ENV", "ENV"}:
+            if name.startswith(("COMPOSE_","GIT_TRACE")) or name in {"DOCKER_HOST", "DOCKER_CONTEXT", "BASH_ENV", "ENV", "SSLKEYLOGFILE"}:
                 env.pop(name, None)
         try:
             result = subprocess.run(argv, input=data, stdin=input_file if input_file is not None else (subprocess.DEVNULL if data is None else None),
@@ -217,6 +312,78 @@ class Commands:
         raw = result.stdout or b""
         require(len(raw) <= 32 * MIB, label + "_OUTPUT_LIMIT")
         return raw
+
+
+# This child deadline includes DNS, TLS and both bounded response reads. It has
+# no deployment, Docker, Git, local API, client-key or credential operations.
+PUBLIC_HTTPS_PROBE = r'''
+from concurrent.futures import ThreadPoolExecutor
+import json, os, socket, ssl, urllib.error, urllib.request
+os.environ.pop('SSLKEYLOGFILE',None)
+class ProbeError(Exception): pass
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+ def redirect_request(self,*args,**kwargs): return None
+def category(error):
+ if isinstance(error,ssl.SSLCertVerificationError): return 'tls_verification_failed'
+ if isinstance(error,ssl.SSLError): return 'tls_error'
+ if isinstance(error,(TimeoutError,socket.timeout)): return 'timeout'
+ if isinstance(error,socket.gaierror): return 'dns_error'
+ return 'network_error'
+def unique(pairs):
+ result={}
+ for key,value in pairs:
+  if key in result: raise ValueError()
+  result[key]=value
+ return result
+def fetch(path):
+ try:
+  opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect(),
+      urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+  request=urllib.request.Request('https://api-test.xn--b1aga8b7a.online'+path,headers={'Accept':'application/json'})
+  with opener.open(request,timeout=8) as response:
+   if response.status!=200: raise ProbeError('http_error')
+   raw=response.read(16385)
+  if len(raw)>16384: raise ValueError()
+  result=json.loads(raw,object_pairs_hook=unique)
+  if not isinstance(result,dict): raise ValueError()
+  return result
+ except urllib.error.HTTPError as error:
+  raise ProbeError('redirect_blocked' if 300<=error.code<400 else 'http_error') from None
+ except urllib.error.URLError as error: raise ProbeError(category(error.reason)) from None
+ except (ValueError,UnicodeError): raise ProbeError('invalid_response') from None
+ except ProbeError: raise
+ except Exception as error: raise ProbeError(category(error)) from None
+try:
+ with ThreadPoolExecutor(max_workers=2) as pool:
+  health_job=pool.submit(fetch,'/health'); version_job=pool.submit(fetch,'/app/version')
+  health,version=health_job.result(),version_job.result()
+ if health.get('ok') is not True or health.get('env')!='staging': raise ProbeError('unhealthy_api')
+ result={'api_version':health.get('version'),'env':'staging',
+     **{key:version.get(key) for key in ('version_name','version_code','sha256','bytes','required')}}
+except ProbeError as error: result={'error_category':str(error)}
+except Exception: result={'error_category':'invalid_response'}
+print(json.dumps(result,sort_keys=True))
+'''
+
+
+def public_status(commands=None):
+    raw=(commands or Commands()).run([sys.executable,'-I','-'],data=PUBLIC_HTTPS_PROBE.encode(),
+                                    timeout=20,label='PUBLIC_HTTPS')
+    try:result=json.loads(raw)
+    except (ValueError,UnicodeError):raise ReleaseError('PUBLIC_HTTPS_INVALID_RESPONSE') from None
+    require(isinstance(result,dict),'PUBLIC_HTTPS_INVALID_RESPONSE')
+    error=result.get('error_category')
+    if error is not None:
+        allowed={'tls_verification_failed','tls_error','timeout','dns_error','network_error',
+                 'redirect_blocked','http_error','invalid_response','unhealthy_api'}
+        raise ReleaseError('PUBLIC_HTTPS_'+(error.upper() if isinstance(error,str) and error in allowed else 'INVALID_RESPONSE'))
+    require(set(result)=={'api_version','env','version_name','version_code','sha256','bytes','required'},'PUBLIC_HTTPS_INVALID_RESPONSE')
+    require(result['env']=='staging' and all(isinstance(result[k],str) and re.fullmatch(r'[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}',result[k])
+                for k in ('api_version','version_name')),'PUBLIC_HTTPS_INVALID_RESPONSE')
+    require(type(result['version_code']) is int and 1<=result['version_code']<=2147483647
+            and type(result['bytes']) is int and 1<=result['bytes']<=256*MIB and type(result['required']) is bool
+            and isinstance(result['sha256'],str) and re.fullmatch(r'[0-9a-f]{64}',result['sha256']),'PUBLIC_HTTPS_INVALID_RESPONSE')
+    return result
 
 
 class Docker:
@@ -660,6 +827,14 @@ class Release:
         require(value.endswith('\0'),'INVALID_ORIGIN_CONFIGURATION')
         return value[:-1].split('\0')
 
+    def origin_report(self):
+        return verified_origin_report(self.repo)
+
+    def verify_origin(self):
+        report=self.origin_report()
+        require(report['origin_verified'],'WRONG_ORIGIN')
+        return report
+
     def read(self):
         if not self.current.exists():return None
         pointer=load_json(self.current)
@@ -736,8 +911,7 @@ class Release:
         regular(self.staging/'.env',private=True);directory(self.staging/'secrets')
         require(self.git('rev-parse','HEAD')==OLD_SOURCE,'LIVE_CHECKOUT_IS_NOT_RELEASE13')
         require(not self.git('status','--porcelain'),'DIRTY_SERVER_CHECKOUT')
-        origins=self.origin_urls()
-        require(len(origins)==1 and origins[0] in REPOSITORY_ORIGINS,'WRONG_ORIGIN')
+        self.verify_origin()
         api=self.docker.service('api');db=self.docker.service('db');worker=self.docker.service('public-video-worker',optional=True)
         require(api['State']['Running'] and db['State']['Running'],'LIVE_SERVICES_NOT_RUNNING')
         require(not worker or not worker['State']['Running'],'UNEXPECTED_EXISTING_MEDIA_WORKER')
@@ -773,6 +947,9 @@ class Release:
         old=self.docker.inspect(self.journal['old_api_container'])
         actual=dict(entry.split('=',1) for entry in old['Config'].get('Env',[]) if '=' in entry)
         durable(self.checkpoint/'original-api-env.json',{k:v for k,v in actual.items() if k.startswith('VECHER_')})
+        # Re-read effective URLs and SSH configuration immediately before fetch.
+        # No remote/key/configuration is rewritten, and known-host checking is strict.
+        self.verify_origin()
         self.git('fetch','--no-tags','origin',SOURCE)
         require(self.git('rev-parse',SOURCE+'^{tree}')==SOURCE_TREE,'TARGET_TREE_MISMATCH')
         shutil.copyfile(self.staging/'.env',self.checkpoint/'staging.env');os.chmod(self.checkpoint/'staging.env',0o600)
@@ -1034,21 +1211,22 @@ class Release:
         if not self.read():
             result={'schema':1,'release':14,'phase':'no_checkpoint','release_checkpoint_present':False,
                     'ready_for_apk14':False,'checkout_readable':False,'checkout_head':None,'checkout_clean':None,
-                    **origin_diagnostics([])}
+                    **origin_diagnostics([]),'origin_verified':False,'origin_verification_reason':'origin_unavailable'}
             try:
                 head=self.git('rev-parse','HEAD')
                 require(re.fullmatch(r'[0-9a-f]{40}',head),'INVALID_CHECKOUT_HEAD')
                 result['checkout_head']=head
                 result['checkout_clean']=not self.git('--no-optional-locks','status','--porcelain')
-                result.update(origin_diagnostics(self.origin_urls()))
                 result['checkout_readable']=True
             except ReleaseError:
                 pass
+            result.update(self.origin_report())
             return result
         result={k:self.journal.get(k) for k in ('schema','release','phase','source_sha','source_tree','previous_source_sha',
             'runtime_sha256','api_image_id','worker_image_id','rehearsal_ok','rollback_rehearsal_ok','media_rehearsal_ok','traffic_may_have_opened',
             'error_code','recovery_database','retained_database','temporary_containers')}
         result['checkpoint']=str(self.checkpoint);result['release_checkpoint_present']=True;result['ready_for_apk14']=False
+        result.update(self.origin_report())
         if self.journal['phase'] not in {'core_ready','blogs_ready','blogs_disabled'}:return result
         require(self.git('rev-parse','HEAD')==SOURCE and not self.git('status','--porcelain'),'ACTIVE_SOURCE_CHANGED')
         api=self.docker.service('api');require(api['Image']==self.journal['api_image_id'] and api['State']['Running'],'ACTIVE_API_CHANGED')
@@ -1077,7 +1255,7 @@ class Release:
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['preflight','deploy','status','enable-blogs','disable-blogs','recover','rehearse'])
+    parser.add_argument('action',choices=['preflight','deploy','status','public-status','enable-blogs','disable-blogs','recover','rehearse'])
     parser.add_argument('--json',action='store_true')
     parser.add_argument('--workspace',type=Path);parser.add_argument('--backup-dir',type=Path)
     for name in ('old-api-image','api-image','worker-image','postgres-image'):parser.add_argument('--'+name)
@@ -1097,7 +1275,8 @@ def main(argv=None):
                     'PRODUCTION_PATH_OR_IMAGE_OVERRIDES_FORBIDDEN')
             release=Release()
             require(os.geteuid()==0,'ROOT_REQUIRED')
-            if args.action=='status':result=release.status()
+            if args.action=='public-status':result=public_status()
+            elif args.action=='status':result=release.status()
             elif args.action=='preflight':result=release.preflight()
             else:
                 with locks(release.backups):
@@ -1107,10 +1286,10 @@ def main(argv=None):
                     else:
                         require(release.read(),'NO_RELEASE_CHECKPOINT');release.rollback();result=release.status()
         print(json.dumps(result,sort_keys=True))
-        if not args.json:
+        if not args.json or args.action=='public-status':
             marker={'deploy':'RELEASE14_CORE_READY','enable-blogs':'RELEASE14_BLOGS_READY','disable-blogs':'RELEASE14_BLOGS_DISABLED',
                     'rehearse':'RELEASE14_RESTORE_REHEARSAL_OK','preflight':'RELEASE14_PREFLIGHT_OK','recover':'RELEASE14_OLD_API_RESTORED',
-                    'status':'RELEASE14_STATUS_OK'}[args.action]
+                    'status':'RELEASE14_STATUS_OK','public-status':'RELEASE14_PUBLIC_HTTPS_OK'}[args.action]
             print(marker)
         return 0
     except (ReleaseError,OSError,ValueError,KeyError,TypeError) as error:

@@ -4,11 +4,15 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
+import ssl
 import stat
 import subprocess
 import sys
 import tarfile
 from types import ModuleType, SimpleNamespace
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -48,6 +52,36 @@ class NextPreflightGate(Exception):
     """Stop after the repository gate, without contacting Docker."""
 
 
+class AccessCommands:
+    """Actual reviewed parser/scanner, with Git and ssh -G command responses."""
+    def __init__(self,origins,*,effective=None,config=None,ssh_fields=None,calls=None):
+        self.origins=origins if isinstance(origins,list) else [origins]
+        self.effective=self.origins if effective is None else effective
+        self.config=config or {};self.fields=ssh_fields or {};self.calls=calls if calls is not None else []
+
+    def __call__(self,argv,env,**kwargs):
+        assert env['GIT_SSH_COMMAND']==r.SSH_COMMAND
+        if argv[0]=='git':
+            args=tuple(argv[3:]);self.calls.append(args)
+            if args[:3]==('config','--null','--get-all'):
+                values=self.origins if args[-1]=='remote.origin.url' else self.config.get(args[-1],[])
+                return (0,'\0'.join(values)+'\0') if values else (1,'')
+            assert args==('remote','get-url','--all','origin'),'No fetch, auth or writes in origin validation'
+            return 0,'\n'.join(self.effective)+'\n'
+        assert argv[:4]==['ssh','-G','-o','BatchMode=yes'] and argv[-2]=='--'
+        self.calls.append(tuple(argv))
+        host=argv[-1];host='github.com' if host=='github-vecher' else host
+        fields={'hostname':host,'user':argv[argv.index('-l')+1] if '-l' in argv else 'git',
+                'port':argv[argv.index('-p')+1] if '-p' in argv else '22','stricthostkeychecking':'ask',
+                'identityfile':'/private/identity/path','permitlocalcommand':'no',**self.fields}
+        return 0,'\n'.join(key+' '+value for key,value in fields.items())+'\n'
+
+
+def access_report(repo,runner,tmp_path,**options):
+    return r.verified_origin_report(repo,run=runner,environ=options.pop('environ',{}),
+        home=tmp_path/'home',system=tmp_path/'system',**options)
+
+
 @pytest.fixture
 def origin_preflight(tmp_path,monkeypatch):
     root=tmp_path/'live';staging=root/'repo/infra/staging'
@@ -59,16 +93,17 @@ def origin_preflight(tmp_path,monkeypatch):
     monkeypatch.setattr(r.os,'geteuid',lambda:0)
     monkeypatch.setattr(r,'regular',lambda path,**kwargs:Path(path))
     calls=[]
-    def configure(origin):
+    def configure(origin,**options):
         urls=origin if isinstance(origin,list) else [origin]
-        answers={('rev-parse','HEAD'):r.OLD_SOURCE,('status','--porcelain'):'',
-                 ('config','--null','--get-all','remote.origin.url'):'\0'.join(urls)+'\0'}
+        answers={('rev-parse','HEAD'):r.OLD_SOURCE,('status','--porcelain'):''}
         def git(*args,strip=True):
             calls.append(args)
             assert args in answers,'Origin checking must never mutate Git configuration or source'
             if args[0]=='config':assert strip is False,'Keep all configured values, including empty ones'
             return answers[args]
         instance.git=git
+        runner=AccessCommands(urls,calls=calls,**options)
+        instance.origin_report=lambda:access_report(instance.repo,runner,tmp_path)
         return instance,calls
     class Docker:
         def service(self,*args,**kwargs):
@@ -87,12 +122,17 @@ def origin_preflight(tmp_path,monkeypatch):
     'git@github.com:ais0930271103-glitch/vecher.git',
     'ssh://git@github.com/ais0930271103-glitch/vecher',
     'ssh://git@github.com/ais0930271103-glitch/vecher.git',
+    'github-vecher:ais0930271103-glitch/vecher.git',
+    'git@github-vecher:ais0930271103-glitch/vecher.git',
+    'ssh://github-vecher/ais0930271103-glitch/vecher.git',
+    'ssh://git@github.com:22/ais0930271103-glitch/vecher.git',
 ])
 def test_preflight_accepts_exact_repository_transport_forms(origin_preflight,origin):
     instance,calls=origin_preflight(origin)
     with pytest.raises(NextPreflightGate):instance.preflight()
-    assert calls==[('rev-parse','HEAD'),('status','--porcelain'),
-                   ('config','--null','--get-all','remote.origin.url'),('docker','api')]
+    assert calls[:3]==[('rev-parse','HEAD'),('status','--porcelain'),
+                       ('config','--null','--get-all','remote.origin.url')]
+    assert ('remote','get-url','--all','origin') in calls and calls[-1]==('docker','api')
     assert not instance.current.exists() and instance.journal is None
 
 
@@ -110,7 +150,6 @@ def test_preflight_accepts_exact_repository_transport_forms(origin_preflight,ori
     'https://github.com/ais0930271103-glitch/vecher.git#main',
     'https://github.com/ais0930271103-glitch/%76echer.git',
     'git@github.com.evil.example:ais0930271103-glitch/vecher.git',
-    'git@github-vecher:ais0930271103-glitch/vecher.git',
     'git@github.com:another-owner/vecher.git',
     'git@github.com:ais0930271103-glitch/vecher-copy.git',
     'ssh://git@github.com.evil.example/ais0930271103-glitch/vecher.git',
@@ -122,8 +161,9 @@ def test_preflight_accepts_exact_repository_transport_forms(origin_preflight,ori
 def test_wrong_origin_stops_deploy_before_checkpoint_or_live_mutations(origin_preflight,origin):
     instance,calls=origin_preflight(origin)
     with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
-    assert calls==[('rev-parse','HEAD'),('status','--porcelain'),
-                   ('config','--null','--get-all','remote.origin.url')]
+    assert calls[:3]==[('rev-parse','HEAD'),('status','--porcelain'),
+                       ('config','--null','--get-all','remote.origin.url')]
+    assert not any(call[0] in {'docker','fetch','checkout'} for call in calls)
     assert not instance.current.exists() and instance.journal is None
     assert not instance.backups.exists()
 
@@ -138,8 +178,143 @@ def test_wrong_origin_stops_deploy_before_checkpoint_or_live_mutations(origin_pr
 def test_multiple_origin_urls_never_pass_the_repository_gate(origin_preflight,origins):
     instance,calls=origin_preflight(origins)
     with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
-    assert len(calls)==3 and calls[-1]==('config','--null','--get-all','remote.origin.url')
+    assert calls[-1]==('remote','get-url','--all','origin')
+    assert not any(call[0] in {'docker','fetch','checkout','ssh'} for call in calls)
     assert not instance.backups.exists() and instance.journal is None
+
+
+def test_real_git_and_ssh_config_resolve_alias_without_forcing_user(tmp_path):
+    if not shutil.which('ssh') or not shutil.which('git'):pytest.skip('Git and OpenSSH required')
+    repo=tmp_path/'repository';repo.mkdir()
+    home=tmp_path/'home';ssh_config=home/'.ssh/config';ssh_config.parent.mkdir(parents=True)
+    ssh_config.write_text('Host github-vecher\n HostName github.com\n User git\n Port 22\n StrictHostKeyChecking ask\n IdentityFile /not-opened/private-key\n')
+    subprocess.run(['git','init','-q',str(repo)],check=True)
+    origin='github-vecher:ais0930271103-glitch/vecher.git'
+    subprocess.run(['git','-C',str(repo),'config','remote.origin.url',origin],check=True)
+    original_config=(repo/'.git/config').read_bytes()
+    helper=r.access_helper();ssh_calls=[]
+    def execute(argv,env,**kwargs):
+        if argv[0]=='ssh':
+            assert '-l' not in argv and '-p' not in argv,'Resolve the actual user/port, never manufacture an accepted result'
+            ssh_calls.append(argv)
+            argv=[shutil.which('ssh'),'-F',str(ssh_config),*argv[1:]]
+        return helper.command(argv,env,**kwargs)
+    result=access_report(repo,execute,tmp_path)
+    assert result['origin_verified'] is True and result['origin_verification_reason']=='verified_ssh'
+    assert result['origin_ssh_alias_resolved'] is True and result['origin_credentials_present'] is False
+    assert result['origin_fetch_url_rewritten'] is False and len(ssh_calls)==1
+    assert (repo/'.git/config').read_bytes()==original_config
+    assert 'private-key' not in json.dumps(result) and origin not in json.dumps(result)
+    # Exercise Git's real insteadOf expansion, not just a mocked string matcher.
+    subprocess.run(['git','-C',str(repo),'config','url.ssh://git@github.com/other-owner/.insteadOf','github-vecher:'],check=True)
+    result=access_report(repo,execute,tmp_path)
+    assert result['origin_verified'] is False and result['origin_fetch_url_rewritten'] is True
+    assert result['origin_verification_reason']=='effective_repository_mismatch'
+    assert len(ssh_calls)==1,'Foreign paths must not even reach SSH configuration resolution'
+
+
+@pytest.mark.parametrize('fields,reason',[
+    ({'hostname':'other.example'},'ssh_host_not_github'),
+    ({'hostname':'ssh.github.com','port':'443'},'ssh_host_not_github'),
+    ({'user':'root'},'ssh_user_not_git'),
+    ({'port':'443'},'ssh_port_not_allowed'),
+    ({'proxycommand':'PRIVATE_PROXY_COMMAND'},'ssh_command_or_proxy_configured'),
+    ({'proxyjump':'PRIVATE_PROXY_HOST'},'ssh_command_or_proxy_configured'),
+    ({'knownhostscommand':'PRIVATE_COMMAND'},'ssh_command_or_proxy_configured'),
+    ({'permitlocalcommand':'yes','localcommand':'PRIVATE_LOCAL_COMMAND'},'ssh_command_or_proxy_configured'),
+    ({'hostkeyalias':'PRIVATE_KEY_ALIAS'},'ssh_command_or_proxy_configured'),
+    ({'stricthostkeychecking':'no'},'ssh_host_key_verification_disabled'),
+    ({'stricthostkeychecking':'false'},'ssh_host_key_verification_disabled'),
+    ({'stricthostkeychecking':'off'},'ssh_host_key_verification_disabled'),
+])
+def test_unsafe_resolved_alias_stops_before_any_deployment_mutation(origin_preflight,fields,reason):
+    instance,calls=origin_preflight('github-vecher:ais0930271103-glitch/vecher.git',ssh_fields=fields)
+    assert instance.origin_report()['origin_verification_reason']==reason
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
+    assert not instance.current.exists() and instance.journal is None and not instance.backups.exists()
+    assert not any(call[0] in {'docker','fetch','checkout'} for call in calls)
+    assert 'PRIVATE_' not in json.dumps(instance.origin_report())
+
+
+@pytest.mark.parametrize('effective',[
+    ['https://other.example/ais0930271103-glitch/vecher.git'],
+    ['git@github.com:other-owner/vecher.git'],
+    ['git@other.example:ais0930271103-glitch/vecher.git'],
+    [r.REPOSITORY,r.REPOSITORY+'.git'],
+])
+def test_effective_url_cannot_redirect_fetch_to_another_repository_or_destination(origin_preflight,effective):
+    instance,calls=origin_preflight(r.REPOSITORY,effective=effective)
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
+    assert not instance.backups.exists() and not any(call[0]=='docker' for call in calls)
+
+
+@pytest.mark.parametrize('name',[
+    'GIT_SSH','GIT_SSH_COMMAND','GIT_CONFIG','GIT_CONFIG_COUNT','GIT_CONFIG_GLOBAL',
+    'GIT_SSH_VARIANT','GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR',
+])
+def test_custom_git_environment_is_never_authorized(tmp_path,name):
+    runner=AccessCommands('github-vecher:ais0930271103-glitch/vecher.git')
+    result=access_report(tmp_path/'repo',runner,tmp_path,environ={name:'PRIVATE_OVERRIDE'})
+    assert result['origin_verified'] is False and result['origin_verification_reason']=='git_environment_override'
+    assert 'PRIVATE_OVERRIDE' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('config,reason',[
+    ({'core.sshCommand':['PRIVATE_COMMAND']},'ssh_command_override'),
+    ({'ssh.variant':['plink']},'ssh_variant_unsupported'),
+])
+def test_custom_ssh_command_and_unsupported_variant_stop_before_deploy(origin_preflight,config,reason):
+    instance,calls=origin_preflight('github-vecher:ais0930271103-glitch/vecher.git',config=config)
+    assert instance.origin_report()['origin_verification_reason']==reason
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
+    assert not any(call[0]=='docker' for call in calls) and not instance.backups.exists()
+
+
+@pytest.mark.parametrize('config',[
+    'Match exec "touch SHOULD_NEVER_EXECUTE"\n HostName github.com\n',
+    'Match command "git-upload-pack"\n HostName github.com\n',
+    'Include %h/private.conf\n',
+    'Include /outside-root/private.conf\n',
+])
+def test_dynamic_or_unreviewable_ssh_config_never_reaches_ssh_g(origin_preflight,tmp_path,config):
+    path=tmp_path/'home/.ssh/config';path.parent.mkdir(parents=True);path.write_text(config)
+    instance,calls=origin_preflight('github-vecher:ais0930271103-glitch/vecher.git')
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
+    assert instance.origin_report()['origin_verification_reason']=='ssh_resolution_unavailable'
+    assert not any(call[0] in {'docker','ssh'} for call in calls) and not instance.backups.exists()
+
+
+def test_origin_is_rechecked_immediately_before_fetch(release,monkeypatch):
+    reports=iter(({'origin_verified':True},{'origin_verified':False}))
+    calls=[]
+    release.origin_report=lambda:(calls.append('origin') or next(reports))
+    release.verify_origin()  # The earlier preflight succeeded.
+    release.docker=SimpleNamespace(inspect=lambda _:{'Config':{'Env':['VECHER_DATA_KEYS=private-fixture']}})
+    release.git=lambda *args:pytest.fail('Changed origin must stop before fetch or checkout')
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):release.prepare()
+    assert calls==['origin','origin'] and release.journal['phase']=='preparing_images'
+    assert release.journal['traffic_may_have_opened'] is False
+
+
+def test_fetch_command_uses_strict_known_host_check_without_mutating_configuration(monkeypatch):
+    seen=[]
+    def execute(argv,**kwargs):
+        seen.append((argv,kwargs['env']))
+        return SimpleNamespace(returncode=0,stdout=b'',stderr=b'')
+    monkeypatch.setattr(r.subprocess,'run',execute)
+    r.Commands().run(['git','fetch','--no-tags','origin',r.SOURCE])
+    assert len(seen)==1 and seen[0][1]['GIT_SSH_COMMAND']==(
+        'ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no')
+    assert '-F' not in seen[0][1]['GIT_SSH_COMMAND'] and 'IdentityFile' not in seen[0][1]['GIT_SSH_COMMAND']
+
+
+def test_access_dependency_is_hash_bound_before_any_code_is_evaluated(tmp_path,monkeypatch):
+    marker=tmp_path/'must-not-exist'
+    fake=tmp_path/'diagnose_access.py';fake.write_text('open('+repr(str(marker))+',"w").write("bad")\n')
+    monkeypatch.setattr(r,'__file__',str(tmp_path/'server_release.py'))
+    result=r.verified_origin_report(tmp_path/'repo',environ={})
+    assert result['origin_verified'] is False and result['origin_verification_reason']=='access_helper_hash_mismatch'
+    assert not marker.exists()
 
 
 @pytest.fixture
@@ -156,7 +331,10 @@ def no_checkpoint_status(tmp_path):
                 command=tuple(args[3:]);calls.append(command)
                 assert command in values,'Status must use read-only Git commands'
                 return values[command]
-        return r.Release(commands=Commands(),root=root,backups=backups),calls
+        instance=r.Release(commands=Commands(),root=root,backups=backups)
+        runner=AccessCommands(urls,calls=calls)
+        instance.origin_report=lambda:access_report(instance.repo,runner,tmp_path)
+        return instance,calls
     return configure
 
 
@@ -168,7 +346,8 @@ def test_status_without_checkpoint_is_read_only_and_does_not_claim_history(no_ch
     assert result['checkout_head']==r.OLD_SOURCE and result['checkout_clean'] is True
     assert result['origin_url_count']==1 and result['origin_transport']=='ssh_scp'
     assert result['origin_matches_repository'] is True
-    assert len(calls)==3 and not instance.backups.exists() and not instance.root.exists()
+    assert result['origin_verified'] is True and result['origin_verification_reason']=='verified_ssh'
+    assert not instance.backups.exists() and not instance.root.exists()
     assert instance.journal is None
 
 
@@ -215,6 +394,144 @@ def test_unfinished_checkpoint_status_never_becomes_ready(release):
     result=release.status()
     assert result['phase']=='images_pinned' and result['release_checkpoint_present'] is True
     assert result['ready_for_apk14'] is False
+
+
+def test_status_reports_verified_alias_without_exposing_its_spelling(no_checkpoint_status):
+    origin='github-vecher:ais0930271103-glitch/vecher.git'
+    instance,_=no_checkpoint_status([origin])
+    result=instance.status()
+    assert result['origin_verified'] is True and result['origin_verification_reason']=='verified_ssh'
+    assert result['origin_ssh_alias_resolved'] is True and result['origin_host_matches_github'] is False
+    assert result['ready_for_apk14'] is False and origin not in json.dumps(result)
+
+
+def public_metadata(**changes):
+    return {'version_name':'0.8.0','version_code':13,'sha256':r.APK_SHA,'bytes':r.APK_BYTES,'required':False,**changes}
+
+
+def public_probe(monkeypatch,capsys,*,health=None,version=None,failure=None,raw_version=None):
+    bodies={'/health':health if health is not None else {'ok':True,'env':'staging','version':'0.9.0'},
+            '/app/version':version if version is not None else public_metadata()}
+    calls=[]
+    class Response:
+        status=200
+        def __init__(self,path):self.path=path
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self,limit):
+            assert limit==16385
+            return raw_version if self.path=='/app/version' and raw_version is not None else json.dumps(bodies[self.path]).encode()
+    class Opener:
+        def open(self,request,timeout):
+            assert timeout==8 and request.full_url.startswith('https://api-test.xn--b1aga8b7a.online/')
+            path=request.full_url.removeprefix('https://api-test.xn--b1aga8b7a.online')
+            assert path in bodies and request.get_method()=='GET'
+            calls.append(path)
+            if failure is not None and path=='/app/version':raise failure
+            return Response(path)
+    def opener(*handlers):
+        tls=next(handler for handler in handlers if isinstance(handler,urllib.request.HTTPSHandler))
+        assert tls._context.check_hostname and tls._context.verify_mode==ssl.CERT_REQUIRED
+        redirect=next(handler for handler in handlers if isinstance(handler,urllib.request.HTTPRedirectHandler))
+        assert redirect.redirect_request(None,None,302,'SECRET_MESSAGE',None,'http://127.0.0.1:8092') is None
+        proxy=next(handler for handler in handlers if isinstance(handler,urllib.request.ProxyHandler))
+        assert proxy.proxies=={}
+        return Opener()
+    monkeypatch.setattr(urllib.request,'build_opener',opener)
+    exec(compile(r.PUBLIC_HTTPS_PROBE,'<public-https-probe>','exec'),{'__name__':'public_probe_test'})
+    output=capsys.readouterr()
+    assert output.err=='' and 'SECRET' not in output.out
+    assert sorted(calls)==['/app/version','/health']
+    return json.loads(output.out)
+
+
+class PublicCommands:
+    def __init__(self,result):self.result=result;self.calls=[]
+    def run(self,argv,**kwargs):
+        self.calls.append(argv)
+        assert argv==[sys.executable,'-I','-']
+        assert kwargs['timeout']==20 and kwargs['data']==r.PUBLIC_HTTPS_PROBE.encode()
+        assert kwargs['label']=='PUBLIC_HTTPS'
+        return json.dumps(self.result).encode()
+
+
+@pytest.mark.parametrize('api,metadata',[
+    ('0.8.0',public_metadata()),
+    ('0.9.0',public_metadata()),
+    ('0.9.0',public_metadata(version_code=14,version_name='0.9.0',sha256='b'*64,bytes=r.APK_BYTES+100)),
+])
+def test_public_https_reports_actual_predeploy_and_postdeploy_versions(monkeypatch,capsys,api,metadata):
+    result=public_probe(monkeypatch,capsys,health={'ok':True,'env':'staging','version':api},version={**metadata,'notes':'PRIVATE_NOTES','download_url':'PRIVATE_URL'})
+    command=PublicCommands(result)
+    assert r.public_status(command)=={'api_version':api,'env':'staging',**metadata}
+    assert len(command.calls)==1 and 'PRIVATE' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('error,category',[
+    (urllib.error.HTTPError('https://SECRET_URL',302,'SECRET_REDIRECT',{},None),'redirect_blocked'),
+    (urllib.error.HTTPError('https://SECRET_URL',503,'SECRET_BODY',{},None),'http_error'),
+    (urllib.error.URLError(ssl.SSLCertVerificationError('SECRET_CERTIFICATE')),'tls_verification_failed'),
+    (urllib.error.URLError(TimeoutError('SECRET_TIMEOUT')),'timeout'),
+    (OSError('SECRET_NETWORK'),'network_error'),
+])
+def test_public_https_errors_are_redacted_and_never_fall_back_to_loopback(monkeypatch,capsys,error,category):
+    result=public_probe(monkeypatch,capsys,failure=error)
+    assert result=={'error_category':category}
+    with pytest.raises(r.ReleaseError,match='^PUBLIC_HTTPS_'+category.upper()+'$'):
+        r.public_status(PublicCommands(result))
+
+
+@pytest.mark.parametrize('raw',[
+    b'x'*16385,b'not json',b'[]',
+    b'{"version_code":13,"version_code":14}',
+])
+def test_public_https_response_is_bounded_and_unambiguous(monkeypatch,capsys,raw):
+    result=public_probe(monkeypatch,capsys,raw_version=raw)
+    assert result=={'error_category':'invalid_response'}
+    with pytest.raises(r.ReleaseError,match='PUBLIC_HTTPS_INVALID_RESPONSE'):r.public_status(PublicCommands(result))
+
+
+@pytest.mark.parametrize('field,value',[
+    ('api_version','PRIVATE_VERSION'),('env','production'),('version_name','0.9'),
+    ('version_code',True),('version_code',0),('version_code',2147483648),
+    ('bytes',True),('bytes',0),('bytes',256*r.MIB+1),
+    ('sha256','A'*64),('sha256','PRIVATE_TOKEN'),('required','false'),
+])
+def test_public_https_normalized_metadata_requires_exact_types_and_bounds(field,value):
+    result={'api_version':'0.9.0','env':'staging',**public_metadata(),field:value}
+    with pytest.raises(r.ReleaseError,match='^PUBLIC_HTTPS_INVALID_RESPONSE$'):r.public_status(PublicCommands(result))
+
+
+@pytest.mark.parametrize('health',[
+    {'ok':False,'env':'staging','version':'0.9.0'},
+    {'ok':1,'env':'staging','version':'0.9.0'},
+    {'ok':True,'env':'production','version':'0.9.0'},
+])
+def test_public_https_requires_healthy_staging_api(monkeypatch,capsys,health):
+    result=public_probe(monkeypatch,capsys,health=health)
+    assert result=={'error_category':'unhealthy_api'}
+    with pytest.raises(r.ReleaseError,match='PUBLIC_HTTPS_UNHEALTHY_API'):r.public_status(PublicCommands(result))
+
+
+@pytest.mark.parametrize('json_flag',[[],['--json']])
+def test_public_status_cli_json_marker_without_deploy_locks_or_dependency(monkeypatch,capsys,json_flag):
+    result={'api_version':'0.9.0','env':'staging',**public_metadata()}
+    monkeypatch.setattr(r.os,'geteuid',lambda:0)
+    monkeypatch.setattr(r,'public_status',lambda:result)
+    monkeypatch.setattr(r,'locks',lambda *_:pytest.fail('Public HTTPS check must not acquire deployment locks'))
+    monkeypatch.setattr(r,'access_helper',lambda:pytest.fail('Public HTTPS check must not probe Git/SSH'))
+    assert r.main(['public-status',*json_flag])==0
+    lines=capsys.readouterr().out.splitlines()
+    assert len(lines)==2 and json.loads(lines[0])==result and lines[1]=='RELEASE14_PUBLIC_HTTPS_OK'
+
+
+def test_public_status_failure_has_no_success_marker_or_exception_details(monkeypatch,capsys):
+    monkeypatch.setattr(r.os,'geteuid',lambda:0)
+    def fail():raise r.ReleaseError('PUBLIC_HTTPS_TLS_VERIFICATION_FAILED')
+    monkeypatch.setattr(r,'public_status',fail)
+    assert r.main(['public-status','--json'])==1
+    output=capsys.readouterr()
+    assert output.out=='' and output.err=='RELEASE14_STOPPED: PUBLIC_HTTPS_TLS_VERIFICATION_FAILED\n'
 
 
 def test_journal_private_durable_and_pointer_scoped(release):

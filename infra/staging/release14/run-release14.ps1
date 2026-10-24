@@ -3,6 +3,8 @@
 param(
     [ValidateSet('Prepare', 'Server', 'Build', 'Accept', 'Publish', 'Status', 'DisableBlogs')]
     [string]$Mode = 'Prepare',
+    [ValidateSet('Direct', 'Server')]
+    [string]$HttpsCheck = 'Direct',
     [string]$RepoPath = 'C:\dev\vecher-update',
     [string]$FlutterPath = 'C:\dev\flutter\bin\flutter.bat',
     [string]$AndroidSdk = ''
@@ -33,7 +35,7 @@ function Assert-VecherPackage {
     }
     $VecherRequired = @(
         'run-release14.ps1', 'release-apk14.ps1', 'vecher-publish-apk14.py',
-        'server_release.py', 'media_rehearsal.py', 'notes-0.9.0.txt'
+        'server_release.py', 'media_rehearsal.py', 'diagnose_access.py', 'notes-0.9.0.txt'
     )
     $VecherSeen = @{}
     foreach ($VecherFile in $VecherRecord.files) {
@@ -109,7 +111,7 @@ function Send-VecherServerTools {
     $VecherArgs = $script:VecherSshOptions + @('vecher', $VecherPrepare)
     & $script:VecherSsh @VecherArgs
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the private release14 tool stage. No deployment was requested.' }
-    $VecherUploads = @('server_release.py', 'media_rehearsal.py') | ForEach-Object {
+    $VecherUploads = @('server_release.py', 'media_rehearsal.py', 'diagnose_access.py') | ForEach-Object {
         Assert-VecherVerifiedFile $_
         Join-Path $script:VecherPackage $_
     }
@@ -121,17 +123,23 @@ function Send-VecherServerTools {
 }
 
 function Invoke-VecherServerAction([string]$Action) {
-    if (@('preflight', 'deploy', 'status', 'enable-blogs', 'disable-blogs') -cnotcontains $Action) { throw 'Unknown server action.' }
+    if (@('preflight', 'deploy', 'status', 'enable-blogs', 'disable-blogs', 'public-status') -cnotcontains $Action) { throw 'Unknown server action.' }
     Assert-VecherVerifiedFile 'server_release.py'
     Assert-VecherVerifiedFile 'media_rehearsal.py'
+    Assert-VecherVerifiedFile 'diagnose_access.py'
     $VecherServerHash = $script:VecherExpectedFileHashes['server_release.py']
     $VecherMediaHash = $script:VecherExpectedFileHashes['media_rehearsal.py']
+    $VecherDiagnosticHash = $script:VecherExpectedFileHashes['diagnose_access.py']
+    $VecherJsonArgument = if ($Action -ceq 'public-status') { ' --json' } else { '' }
     $VecherParts = @(
         'set -eu;'
         ('cd ''{0}'';' -f $script:VecherRemoteStage)
-        ('printf ''%s  %s\n'' ''{0}'' ''server_release.py'' ''{1}'' ''media_rehearsal.py'' | sha256sum -c -;' -f $VecherServerHash, $VecherMediaHash)
-        ('python3 ./server_release.py ''{0}'' </dev/null' -f $Action)
+        ('printf ''%s  %s\n'' ''{0}'' ''server_release.py'' ''{1}'' ''media_rehearsal.py'' ''{2}'' ''diagnose_access.py'' | sha256sum -c -;' -f $VecherServerHash, $VecherMediaHash, $VecherDiagnosticHash)
+        ('python3 ./server_release.py ''{0}''{1} </dev/null' -f $Action, $VecherJsonArgument)
     )
+    if ($Action -ceq 'public-status') {
+        return Read-VecherServerPublicStatus ($VecherParts -join ' ')
+    }
     $VecherArgs = $script:VecherSshOptions + @('vecher', ($VecherParts -join ' '))
     # Stream progress during a potentially long backup/build/rehearsal. Keeping
     # stdout in an array would hide minutes of meaningful server output.
@@ -142,21 +150,136 @@ function Invoke-VecherServerAction([string]$Action) {
     }
 }
 
+function Read-VecherServerPublicStatus([string]$Command) {
+    # Only this short, read-only action is captured. Deployment progress stays
+    # streamed above. The fixed command contains no embedded double quotes.
+    if ($Command.Contains('"') -or $Command.Contains("`r") -or $Command.Contains("`n")) {
+        throw 'Invalid server public-status command.'
+    }
+    $VecherInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $VecherInfo.FileName = $script:VecherSsh
+    $VecherInfo.Arguments = ($script:VecherSshOptions -join ' ') + ' vecher "' + $Command + '"'
+    $VecherInfo.UseShellExecute = $false
+    # The existing SSH jump host asks for a password in the Windows console.
+    # Inherit that console/stdin/stderr; CREATE_NO_WINDOW would remove CONIN$.
+    $VecherInfo.CreateNoWindow = $false
+    $VecherInfo.RedirectStandardInput = $false
+    $VecherInfo.RedirectStandardOutput = $true
+    $VecherInfo.RedirectStandardError = $false
+    $VecherProcess = New-Object System.Diagnostics.Process
+    $VecherProcess.StartInfo = $VecherInfo
+    $VecherStarted = $false
+    $VecherClock = [Diagnostics.Stopwatch]::StartNew()
+    $VecherText = New-Object Text.StringBuilder
+    try {
+        $VecherStarted = $VecherProcess.Start()
+        if (-not $VecherStarted) { throw 'Server public HTTPS process did not start.' }
+        $VecherOutBuffer = New-Object char[] 2048
+        $VecherOutTask = $VecherProcess.StandardOutput.ReadAsync($VecherOutBuffer, 0, $VecherOutBuffer.Length)
+        $VecherOutDone = $false
+        while (-not $VecherOutDone -or -not $VecherProcess.HasExited) {
+            if ($VecherClock.ElapsedMilliseconds -gt 60000) { throw 'Server public HTTPS check timed out.' }
+            if (-not $VecherOutDone -and $VecherOutTask.IsCompleted) {
+                $VecherCount = $VecherOutTask.Result
+                if ($VecherCount -eq 0) { $VecherOutDone = $true }
+                else {
+                    if ($VecherText.Length + $VecherCount -gt 16384) { throw 'Server public HTTPS output exceeded its limit.' }
+                    $null = $VecherText.Append($VecherOutBuffer, 0, $VecherCount)
+                    $VecherOutTask = $VecherProcess.StandardOutput.ReadAsync($VecherOutBuffer, 0, $VecherOutBuffer.Length)
+                }
+            }
+            if (-not $VecherOutDone -or -not $VecherProcess.HasExited) {
+                [Threading.Thread]::Sleep(10)
+            }
+        }
+        if ($VecherProcess.ExitCode -ne 0) { throw 'Server public HTTPS check failed.' }
+    } catch {
+        throw 'Server public HTTPS was not verified. Its response was not printed; SSH console prompts and errors above were preserved.'
+    } finally {
+        $VecherClock.Stop()
+        if ($VecherStarted -and -not $VecherProcess.HasExited) {
+            $VecherProcess.Kill()
+            $null = $VecherProcess.WaitForExit(2000)
+        }
+        $VecherProcess.Dispose()
+    }
+    $VecherLines = @($VecherText.ToString() -split '\r?\n' | Where-Object { $_ -cne '' })
+    $VecherExpectedLines = @('server_release.py: OK', 'media_rehearsal.py: OK', 'diagnose_access.py: OK', 'RELEASE14_PUBLIC_HTTPS_OK')
+    foreach ($VecherExpected in $VecherExpectedLines) {
+        if (@($VecherLines | Where-Object { $_ -ceq $VecherExpected }).Count -ne 1) {
+            throw 'Server public HTTPS proof is incomplete.'
+        }
+    }
+    $VecherJsonLines = @($VecherLines | Where-Object { $VecherExpectedLines -cnotcontains $_ })
+    if ($VecherJsonLines.Count -ne 1 -or -not $VecherJsonLines[0].StartsWith('{') -or -not $VecherJsonLines[0].EndsWith('}')) {
+        throw 'Server public HTTPS response has an unexpected shape.'
+    }
+    try { $VecherPublic = ConvertFrom-Json -InputObject $VecherJsonLines[0] -ErrorAction Stop }
+    catch { throw 'Server public HTTPS returned invalid JSON. Its contents were not printed.' }
+    Assert-VecherPublicStatus $VecherPublic
+    return $VecherPublic
+}
+
 function Get-VecherPublicJson([string]$Path) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    return Invoke-RestMethod -Method Get -Uri ($script:VecherOrigin + $Path) -TimeoutSec 30
+    try {
+        return Invoke-RestMethod -Method Get -Uri ($script:VecherOrigin + $Path) -TimeoutSec 30 -MaximumRedirection 0
+    } catch {
+        throw 'Windows public HTTPS request failed. Run the separate access diagnostic; no response or exception details were printed.'
+    }
+}
+
+function Assert-VecherPublicStatus($Public, [string]$ExpectedApiVersion = '') {
+    $VecherFields = @('api_version', 'env', 'version_name', 'version_code', 'sha256', 'bytes', 'required')
+    if ($null -eq $Public -or $Public -isnot [PSCustomObject] -or @($Public.PSObject.Properties).Count -ne $VecherFields.Count) {
+        throw 'Public HTTPS returned an invalid release contract.'
+    }
+    foreach ($VecherField in $VecherFields) {
+        if ($null -eq $Public.PSObject.Properties[$VecherField]) { throw 'Public HTTPS returned an incomplete release contract.' }
+    }
+    if ($Public.api_version -isnot [string] -or $Public.api_version -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+\z' -or
+        $Public.env -cne 'staging' -or $Public.env -isnot [string] -or
+        $Public.version_name -isnot [string] -or $Public.version_name -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+\z' -or
+        ($Public.version_code -isnot [int] -and $Public.version_code -isnot [long]) -or $Public.version_code -lt 1 -or
+        $Public.sha256 -isnot [string] -or $Public.sha256 -cnotmatch '^[0-9a-f]{64}\z' -or
+        ($Public.bytes -isnot [int] -and $Public.bytes -isnot [long]) -or $Public.bytes -lt 2 -or $Public.bytes -gt 209715200 -or
+        $Public.required -isnot [bool]) {
+        throw 'Public HTTPS returned invalid release values.'
+    }
+    if ($ExpectedApiVersion -and $Public.api_version -cne $ExpectedApiVersion) {
+        throw 'Public HTTPS is not serving the required API version. Keep the output and inspect Status before retrying.'
+    }
+}
+
+function Get-VecherDirectPublicStatus {
+    $VecherHealth = Get-VecherPublicJson '/health'
+    $VecherVersion = Get-VecherPublicJson '/app/version'
+    try {
+        if ($VecherHealth -isnot [PSCustomObject] -or $VecherVersion -isnot [PSCustomObject] -or
+            $VecherHealth.ok -isnot [bool] -or $VecherHealth.ok -ne $true) { throw 'Invalid health response.' }
+        $VecherPublic = [PSCustomObject]@{
+            api_version = $VecherHealth.version; env = $VecherHealth.env
+            version_name = $VecherVersion.version_name; version_code = $VecherVersion.version_code
+            sha256 = $VecherVersion.sha256; bytes = $VecherVersion.bytes; required = $VecherVersion.required
+        }
+        Assert-VecherPublicStatus $VecherPublic
+        return $VecherPublic
+    } catch {
+        throw 'Windows public HTTPS returned an invalid health or release contract. Its contents were not printed.'
+    }
 }
 
 function Show-VecherPublicStatus([string]$ExpectedApiVersion = '') {
-    $VecherHealth = Get-VecherPublicJson '/health'
-    $VecherVersion = Get-VecherPublicJson '/app/version'
-    if ($VecherHealth.ok -ne $true -or $VecherHealth.env -cne 'staging') { throw 'Public HTTPS health check failed.' }
-    if ($ExpectedApiVersion -and $VecherHealth.version -cne $ExpectedApiVersion) {
-        throw 'The public HTTPS endpoint is not serving API0.9.0 yet. Keep the server output and inspect -Mode Status before device acceptance.'
-    }
-    Write-Host ('PUBLIC_API_VERSION=' + $VecherHealth.version)
-    Write-Host ('PUBLIC_APK_VERSION={0} ({1})' -f $VecherVersion.version_name, $VecherVersion.version_code)
-    Write-Host ('PUBLIC_APK_SHA256=' + $VecherVersion.sha256)
+    if ($HttpsCheck -eq 'Server') { $VecherPublic = Invoke-VecherServerAction 'public-status' }
+    else { $VecherPublic = Get-VecherDirectPublicStatus }
+    Assert-VecherPublicStatus $VecherPublic $ExpectedApiVersion
+    Write-Host ('PUBLIC_API_VERSION=' + $VecherPublic.api_version)
+    Write-Host ('PUBLIC_APK_VERSION={0} ({1})' -f $VecherPublic.version_name, $VecherPublic.version_code)
+    Write-Host ('PUBLIC_APK_SHA256=' + $VecherPublic.sha256)
+    if ($HttpsCheck -eq 'Server') {
+        Write-Host 'SERVER_PUBLIC_HTTPS_VERIFIED'
+        Write-Host 'WINDOWS_PUBLIC_HTTPS_NOT_CHECKED'
+    } else { Write-Host 'WINDOWS_PUBLIC_HTTPS_VERIFIED' }
 }
 
 function Assert-VecherPublicApk {
@@ -202,6 +325,8 @@ function Assert-VecherPublicApk {
         if ($VecherReceived -ne $VecherLocalBytes -or $VecherRemoteHash -cne $VecherLocalHash) {
             throw 'Public HTTPS APK bytes do not match the accepted candidate.'
         }
+    } catch {
+        throw 'The published APK was not verified by public HTTPS. Publication may already have completed; keep the same artifacts and inspect Status. No response or exception details were printed.'
     } finally {
         if ($null -ne $VecherInput) { $VecherInput.Dispose() }
         if ($null -ne $VecherResponse) { $VecherResponse.Dispose() }
@@ -213,13 +338,29 @@ function Assert-VecherPublicApk {
 }
 
 Assert-VecherPackage
+if ($HttpsCheck -eq 'Server' -and $Mode -notin @('Prepare', 'Server', 'Status')) {
+    throw 'Server HTTPS checks are allowed only for Prepare, Server and Status. Build, Accept, Publish and DisableBlogs must use Direct.'
+}
 $VecherLeaf = Join-Path $VecherPackage 'release-apk14.ps1'
 $VecherLeafArgs = @{ RepoPath = $RepoPath; FlutterPath = $FlutterPath; AndroidSdk = $AndroidSdk }
+if ($HttpsCheck -eq 'Direct' -and $Mode -in @('Prepare', 'Server')) {
+    # Fail before deployment or tool staging if this PC cannot reach public HTTPS.
+    Show-VecherPublicStatus
+}
 if ($Mode -in @('Prepare', 'Server', 'Status', 'DisableBlogs')) {
     Send-VecherServerTools
     if ($Mode -eq 'Status') {
         Invoke-VecherServerAction 'status'
-        Show-VecherPublicStatus
+        Write-Host 'SERVER_STATUS_RECEIVED'
+        try { Show-VecherPublicStatus }
+        catch {
+            if ($HttpsCheck -eq 'Server') {
+                Write-Host 'SERVER_PUBLIC_HTTPS_UNVERIFIED'
+                Write-Host 'WINDOWS_PUBLIC_HTTPS_NOT_CHECKED'
+            } else { Write-Host 'WINDOWS_PUBLIC_HTTPS_UNVERIFIED' }
+            Write-Host 'STATUS_RESULT=PARTIAL'
+            Write-Host 'The SSH status above was received. The selected public HTTPS check was not verified; this is not release readiness.'
+        }
         return
     }
     if ($Mode -eq 'DisableBlogs') {
@@ -227,6 +368,7 @@ if ($Mode -in @('Prepare', 'Server', 'Status', 'DisableBlogs')) {
         Show-VecherPublicStatus '0.9.0'
         return
     }
+    if ($HttpsCheck -eq 'Server') { Show-VecherPublicStatus }
     Invoke-VecherServerAction 'deploy'
     Invoke-VecherServerAction 'enable-blogs'
     Show-VecherPublicStatus '0.9.0'
@@ -248,6 +390,9 @@ if ($Mode -eq 'Accept') {
     return
 }
 if ($Mode -eq 'Publish') {
+    # Publishing is always Direct; verify public reachability before the leaf
+    # can replace any server APK files, then retain the complete byte postcheck.
+    Show-VecherPublicStatus '0.9.0'
     Assert-VecherVerifiedFile 'release-apk14.ps1'
     & $VecherLeaf -Mode Publish @VecherLeafArgs
     if (-not $?) { throw 'APK14 publication did not complete. Keep the same candidate and receipts.' }
