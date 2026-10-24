@@ -44,6 +44,179 @@ def test_fixed_source_schema_and_artifact_pins():
     assert r.APK_BYTES==36591005
 
 
+class NextPreflightGate(Exception):
+    """Stop after the repository gate, without contacting Docker."""
+
+
+@pytest.fixture
+def origin_preflight(tmp_path,monkeypatch):
+    root=tmp_path/'live';staging=root/'repo/infra/staging'
+    (staging/'secrets').mkdir(parents=True)
+    (staging/'.env').write_text('fixture-only')
+    instance=r.Release(root=root,backups=tmp_path/'backups')
+    # This test can run as an unprivileged CI user. Root and private-file
+    # validation are covered separately; keep the real deploy/preflight order.
+    monkeypatch.setattr(r.os,'geteuid',lambda:0)
+    monkeypatch.setattr(r,'regular',lambda path,**kwargs:Path(path))
+    calls=[]
+    def configure(origin):
+        urls=origin if isinstance(origin,list) else [origin]
+        answers={('rev-parse','HEAD'):r.OLD_SOURCE,('status','--porcelain'):'',
+                 ('config','--null','--get-all','remote.origin.url'):'\0'.join(urls)+'\0'}
+        def git(*args,strip=True):
+            calls.append(args)
+            assert args in answers,'Origin checking must never mutate Git configuration or source'
+            if args[0]=='config':assert strip is False,'Keep all configured values, including empty ones'
+            return answers[args]
+        instance.git=git
+        return instance,calls
+    class Docker:
+        def service(self,*args,**kwargs):
+            calls.append(('docker',*args));raise NextPreflightGate()
+    instance.docker=Docker()
+    def forbidden(*args,**kwargs):pytest.fail('Rejected origin reached a deployment mutation')
+    for name in ('begin','prepare','freeze','rehearsal','migrate_live','activate_core'):
+        setattr(instance,name,forbidden)
+    return configure
+
+
+@pytest.mark.parametrize('origin',[
+    'https://github.com/ais0930271103-glitch/vecher',
+    'https://github.com/ais0930271103-glitch/vecher.git',
+    'git@github.com:ais0930271103-glitch/vecher',
+    'git@github.com:ais0930271103-glitch/vecher.git',
+    'ssh://git@github.com/ais0930271103-glitch/vecher',
+    'ssh://git@github.com/ais0930271103-glitch/vecher.git',
+])
+def test_preflight_accepts_exact_repository_transport_forms(origin_preflight,origin):
+    instance,calls=origin_preflight(origin)
+    with pytest.raises(NextPreflightGate):instance.preflight()
+    assert calls==[('rev-parse','HEAD'),('status','--porcelain'),
+                   ('config','--null','--get-all','remote.origin.url'),('docker','api')]
+    assert not instance.current.exists() and instance.journal is None
+
+
+@pytest.mark.parametrize('origin',[
+    '',
+    'http://github.com/ais0930271103-glitch/vecher.git',
+    'git://github.com/ais0930271103-glitch/vecher.git',
+    'https://github.com.evil.example/ais0930271103-glitch/vecher.git',
+    'https://github.com@evil.example/ais0930271103-glitch/vecher.git',
+    'https://token@github.com/ais0930271103-glitch/vecher.git',
+    'https://github.com/another-owner/vecher.git',
+    'https://github.com/ais0930271103-glitch/vecher-copy.git',
+    'https://github.com/ais0930271103-glitch/vecher.git/extra',
+    'https://github.com/ais0930271103-glitch/vecher.git?ref=main',
+    'https://github.com/ais0930271103-glitch/vecher.git#main',
+    'https://github.com/ais0930271103-glitch/%76echer.git',
+    'git@github.com.evil.example:ais0930271103-glitch/vecher.git',
+    'git@github-vecher:ais0930271103-glitch/vecher.git',
+    'git@github.com:another-owner/vecher.git',
+    'git@github.com:ais0930271103-glitch/vecher-copy.git',
+    'ssh://git@github.com.evil.example/ais0930271103-glitch/vecher.git',
+    'ssh://root@github.com/ais0930271103-glitch/vecher.git',
+    'ssh://git@github.com:2222/ais0930271103-glitch/vecher.git',
+    'ssh://git@github.com/ais0930271103-glitch/../vecher.git',
+    'file:///opt/github.com/ais0930271103-glitch/vecher.git',
+])
+def test_wrong_origin_stops_deploy_before_checkpoint_or_live_mutations(origin_preflight,origin):
+    instance,calls=origin_preflight(origin)
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
+    assert calls==[('rev-parse','HEAD'),('status','--porcelain'),
+                   ('config','--null','--get-all','remote.origin.url')]
+    assert not instance.current.exists() and instance.journal is None
+    assert not instance.backups.exists()
+
+
+@pytest.mark.parametrize('origins',[
+    [r.REPOSITORY,'https://example.invalid/other.git'],
+    ['https://example.invalid/other.git',r.REPOSITORY],
+    [r.REPOSITORY,r.REPOSITORY+'.git'],
+    [r.REPOSITORY,''],
+    ['',r.REPOSITORY],
+])
+def test_multiple_origin_urls_never_pass_the_repository_gate(origin_preflight,origins):
+    instance,calls=origin_preflight(origins)
+    with pytest.raises(r.ReleaseError,match='^WRONG_ORIGIN$'):instance.deploy()
+    assert len(calls)==3 and calls[-1]==('config','--null','--get-all','remote.origin.url')
+    assert not instance.backups.exists() and instance.journal is None
+
+
+@pytest.fixture
+def no_checkpoint_status(tmp_path):
+    calls=[]
+    root,backups=tmp_path/'live',tmp_path/'backups'
+    def configure(urls,*,dirty=False):
+        values={('rev-parse','HEAD'):(r.OLD_SOURCE+'\n').encode(),
+                ('--no-optional-locks','status','--porcelain'):b' M private-name\n' if dirty else b'',
+                ('config','--null','--get-all','remote.origin.url'):('\0'.join(urls)+'\0').encode()}
+        class Commands:
+            def run(self,args,**kwargs):
+                assert args[:3]==['git','-C',str(root/'repo')],'Status must not invoke Docker or other commands'
+                command=tuple(args[3:]);calls.append(command)
+                assert command in values,'Status must use read-only Git commands'
+                return values[command]
+        return r.Release(commands=Commands(),root=root,backups=backups),calls
+    return configure
+
+
+def test_status_without_checkpoint_is_read_only_and_does_not_claim_history(no_checkpoint_status):
+    instance,calls=no_checkpoint_status(['git@github.com:ais0930271103-glitch/vecher.git'])
+    result=instance.status()
+    assert result['phase']=='no_checkpoint' and result['release_checkpoint_present'] is False
+    assert result['ready_for_apk14'] is False and result['checkout_readable'] is True
+    assert result['checkout_head']==r.OLD_SOURCE and result['checkout_clean'] is True
+    assert result['origin_url_count']==1 and result['origin_transport']=='ssh_scp'
+    assert result['origin_matches_repository'] is True
+    assert len(calls)==3 and not instance.backups.exists() and not instance.root.exists()
+    assert instance.journal is None
+
+
+def test_no_checkpoint_status_sanitizes_credential_url_and_dirty_paths(no_checkpoint_status,capsys):
+    url='https://PRIVATE_USER:PRIVATE_TOKEN@github.com/ais0930271103-glitch/vecher.git?token=QUERY_SECRET#FRAGMENT_SECRET'
+    instance,_=no_checkpoint_status([url],dirty=True)
+    result=instance.status()
+    assert result['origin_transport']=='https' and result['origin_matches_repository'] is False
+    assert result['origin_credentials_present'] is True and result['origin_host_matches_github'] is True
+    assert result['origin_repository_path_matches'] is True and result['checkout_clean'] is False
+    captured=capsys.readouterr()
+    serialized=json.dumps(result)+captured.out+captured.err
+    assert all(value not in serialized for value in (url,'PRIVATE_USER','PRIVATE_TOKEN','QUERY_SECRET','FRAGMENT_SECRET','private-name'))
+    assert not instance.backups.exists() and not instance.root.exists()
+
+
+def test_no_checkpoint_status_reports_multiple_origins_without_selecting_one(no_checkpoint_status):
+    urls=[r.REPOSITORY,'https://PRIVATE_USER:PRIVATE_TOKEN@other.example/private/repo.git']
+    instance,_=no_checkpoint_status(urls)
+    result=instance.status()
+    assert result['origin_url_count']==2 and result['origin_transport']=='unknown'
+    assert result['origin_matches_repository'] is False and result['origin_credentials_present'] is True
+    assert result['origin_host_matches_github'] is False and result['origin_repository_path_matches'] is False
+    assert all(value not in json.dumps(result) for value in (*urls,'PRIVATE_TOKEN','other.example','private/repo'))
+
+
+def test_no_checkpoint_status_keeps_git_failures_safe(tmp_path):
+    class Commands:
+        def run(self,*args,**kwargs):raise r.ReleaseError('SOURCE_FAILED')
+    instance=r.Release(commands=Commands(),root=tmp_path/'live',backups=tmp_path/'backups')
+    result=instance.status()
+    assert result['phase']=='no_checkpoint' and result['checkout_readable'] is False
+    assert result['checkout_head'] is None and result['ready_for_apk14'] is False
+    assert not instance.backups.exists()
+
+
+def test_existing_checkpoint_status_retains_live_source_gate(release):
+    release.phase('core_ready',traffic_may_have_opened=True)
+    release.git=lambda *args:r.OLD_SOURCE
+    with pytest.raises(r.ReleaseError,match='ACTIVE_SOURCE_CHANGED'):release.status()
+
+
+def test_unfinished_checkpoint_status_never_becomes_ready(release):
+    result=release.status()
+    assert result['phase']=='images_pinned' and result['release_checkpoint_present'] is True
+    assert result['ready_for_apk14'] is False
+
+
 def test_journal_private_durable_and_pointer_scoped(release):
     pointer=r.load_json(release.current)
     assert pointer=={'schema':1,'release':14,'checkpoint':str(release.checkpoint)}

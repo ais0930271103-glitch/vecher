@@ -38,6 +38,14 @@ APK_BYTES = 36591005
 APK_METADATA_SHA = "9b1e1ad5c86f865e0bc3498874c28b62b44805092d357d1b4fa82dcc0e4e660e"
 PROJECT = "vecher-test"
 REPOSITORY = "https://github.com/ais0930271103-glitch/vecher"
+# Exact transport spellings for this repository; do not resolve aliases,
+# discard URL components, or rewrite the server's existing remote.
+REPOSITORY_ORIGINS = frozenset(
+    origin + suffix
+    for origin in (REPOSITORY, "git@github.com:ais0930271103-glitch/vecher",
+                   "ssh://git@github.com/ais0930271103-glitch/vecher")
+    for suffix in ("", ".git")
+)
 NEW_TABLES = {"public_blogs", "public_blog_consents", "blog_media_assets", "public_posts",
               "public_post_approvals", "public_post_reports"}
 GIB, MIB = 1024**3, 1024**2
@@ -53,6 +61,39 @@ class ReleaseError(RuntimeError):
 def require(value, code):
     if not value:
         raise ReleaseError(code)
+
+
+def origin_diagnostics(urls):
+    """Only enums/booleans/counts leave this function, never URL components.
+
+    credentials_present denotes userinfo, including the normal git SSH user;
+    it does not claim that a password or token is present. Classification
+    never authorizes a URL: only the exact, single-value allowlist does that.
+    """
+    details=[]
+    for origin in urls:
+        transport,host,path,credentials='unknown',None,'',False
+        try:
+            if '://' in origin:
+                parsed=urlsplit(origin)
+                transport={'https':'https','ssh':'ssh_url'}.get(parsed.scheme,'other')
+                host,path=parsed.hostname,parsed.path.removeprefix('/')
+                credentials=parsed.username is not None or parsed.password is not None
+            else:
+                match=re.fullmatch(r'(?:(?P<user>[^/@:\s]+)@)?(?P<host>[^/:\s]+):(?P<path>[^\s]+)',origin)
+                if match:
+                    transport,host,path='ssh_scp',match['host'],match['path']
+                    credentials=match['user'] is not None
+        except ValueError:
+            pass
+        details.append((transport,credentials,host=='github.com',
+                        path.removesuffix('.git')==REPOSITORY.removeprefix('https://github.com/')))
+    return {'origin_url_count':len(urls),
+            'origin_transport':details[0][0] if len(details)==1 else 'unknown',
+            'origin_matches_repository':len(urls)==1 and urls[0] in REPOSITORY_ORIGINS,
+            'origin_credentials_present':any(item[1] for item in details),
+            'origin_host_matches_github':bool(details) and all(item[2] for item in details),
+            'origin_repository_path_matches':bool(details) and all(item[3] for item in details)}
 
 
 def utc():
@@ -610,8 +651,14 @@ class Release:
         self.helper=helper or Path(__file__).with_name('media_rehearsal.py')
         self.journal=None;self.checkpoint=None
 
-    def git(self,*args):
-        return self.commands.run(['git','-C',str(self.repo),*args],label='SOURCE').decode().strip()
+    def git(self,*args,strip=True):
+        value=self.commands.run(['git','-C',str(self.repo),*args],label='SOURCE').decode()
+        return value.strip() if strip else value
+
+    def origin_urls(self):
+        value=self.git('config','--null','--get-all','remote.origin.url',strip=False)
+        require(value.endswith('\0'),'INVALID_ORIGIN_CONFIGURATION')
+        return value[:-1].split('\0')
 
     def read(self):
         if not self.current.exists():return None
@@ -689,7 +736,8 @@ class Release:
         regular(self.staging/'.env',private=True);directory(self.staging/'secrets')
         require(self.git('rev-parse','HEAD')==OLD_SOURCE,'LIVE_CHECKOUT_IS_NOT_RELEASE13')
         require(not self.git('status','--porcelain'),'DIRTY_SERVER_CHECKOUT')
-        require(self.git('config','--get','remote.origin.url').removesuffix('.git')==REPOSITORY,'WRONG_ORIGIN')
+        origins=self.origin_urls()
+        require(len(origins)==1 and origins[0] in REPOSITORY_ORIGINS,'WRONG_ORIGIN')
         api=self.docker.service('api');db=self.docker.service('db');worker=self.docker.service('public-video-worker',optional=True)
         require(api['State']['Running'] and db['State']['Running'],'LIVE_SERVICES_NOT_RUNNING')
         require(not worker or not worker['State']['Running'],'UNEXPECTED_EXISTING_MEDIA_WORKER')
@@ -983,11 +1031,24 @@ class Release:
             raise ReleaseError('DISABLE_BLOGS_FAILED') from None
 
     def status(self):
-        require(self.read(),'NO_RELEASE_CHECKPOINT')
+        if not self.read():
+            result={'schema':1,'release':14,'phase':'no_checkpoint','release_checkpoint_present':False,
+                    'ready_for_apk14':False,'checkout_readable':False,'checkout_head':None,'checkout_clean':None,
+                    **origin_diagnostics([])}
+            try:
+                head=self.git('rev-parse','HEAD')
+                require(re.fullmatch(r'[0-9a-f]{40}',head),'INVALID_CHECKOUT_HEAD')
+                result['checkout_head']=head
+                result['checkout_clean']=not self.git('--no-optional-locks','status','--porcelain')
+                result.update(origin_diagnostics(self.origin_urls()))
+                result['checkout_readable']=True
+            except ReleaseError:
+                pass
+            return result
         result={k:self.journal.get(k) for k in ('schema','release','phase','source_sha','source_tree','previous_source_sha',
             'runtime_sha256','api_image_id','worker_image_id','rehearsal_ok','rollback_rehearsal_ok','media_rehearsal_ok','traffic_may_have_opened',
             'error_code','recovery_database','retained_database','temporary_containers')}
-        result['checkpoint']=str(self.checkpoint);result['ready_for_apk14']=False
+        result['checkpoint']=str(self.checkpoint);result['release_checkpoint_present']=True;result['ready_for_apk14']=False
         if self.journal['phase'] not in {'core_ready','blogs_ready','blogs_disabled'}:return result
         require(self.git('rev-parse','HEAD')==SOURCE and not self.git('status','--porcelain'),'ACTIVE_SOURCE_CHANGED')
         api=self.docker.service('api');require(api['Image']==self.journal['api_image_id'] and api['State']['Running'],'ACTIVE_API_CHANGED')
