@@ -413,6 +413,9 @@ def public_probe(monkeypatch,capsys,*,health=None,version=None,failure=None,raw_
     bodies={'/health':health if health is not None else {'ok':True,'env':'staging','version':'0.9.0'},
             '/app/version':version if version is not None else public_metadata()}
     calls=[]
+    build_opener=urllib.request.build_opener
+    existing_proxies={'https':'http://SECRET_PROXY_USER:SECRET_PROXY_PASSWORD@proxy.invalid:8080'}
+    monkeypatch.setattr(urllib.request,'getproxies',lambda:dict(existing_proxies))
     class Response:
         status=200
         def __init__(self,path):self.path=path
@@ -434,8 +437,12 @@ def public_probe(monkeypatch,capsys,*,health=None,version=None,failure=None,raw_
         assert tls._context.check_hostname and tls._context.verify_mode==ssl.CERT_REQUIRED
         redirect=next(handler for handler in handlers if isinstance(handler,urllib.request.HTTPRedirectHandler))
         assert redirect.redirect_request(None,None,302,'SECRET_MESSAGE',None,'http://127.0.0.1:8092') is None
-        proxy=next(handler for handler in handlers if isinstance(handler,urllib.request.ProxyHandler))
-        assert proxy.proxies=={}
+        assert not any(isinstance(handler,urllib.request.ProxyHandler) for handler in handlers)
+        # Build the real handler chain, without opening a connection: urllib
+        # must retain the existing proxy settings instead of forcing direct DNS.
+        actual=build_opener(*handlers)
+        proxy=next(handler for handler in actual.handlers if isinstance(handler,urllib.request.ProxyHandler))
+        assert proxy.proxies==existing_proxies
         return Opener()
     monkeypatch.setattr(urllib.request,'build_opener',opener)
     exec(compile(r.PUBLIC_HTTPS_PROBE,'<public-https-probe>','exec'),{'__name__':'public_probe_test'})
@@ -465,6 +472,12 @@ def test_public_https_reports_actual_predeploy_and_postdeploy_versions(monkeypat
     command=PublicCommands(result)
     assert r.public_status(command)=={'api_version':api,'env':'staging',**metadata}
     assert len(command.calls)==1 and 'PRIVATE' not in json.dumps(result)
+
+
+def test_public_https_retains_standard_network_handlers_without_disclosing_proxy_credentials(monkeypatch,capsys):
+    result=public_probe(monkeypatch,capsys)
+    assert r.public_status(PublicCommands(result))=={'api_version':'0.9.0','env':'staging',**public_metadata()}
+    assert 'SECRET_PROXY' not in json.dumps(result)
 
 
 @pytest.mark.parametrize('error,category',[

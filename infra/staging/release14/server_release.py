@@ -337,7 +337,8 @@ def unique(pairs):
  return result
 def fetch(path):
  try:
-  opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect(),
+  # Preserve the VPS's existing network configuration, as in the diagnostic.
+  opener=urllib.request.build_opener(NoRedirect(),
       urllib.request.HTTPSHandler(context=ssl.create_default_context()))
   request=urllib.request.Request('https://api-test.xn--b1aga8b7a.online'+path,headers={'Accept':'application/json'})
   with opener.open(request,timeout=8) as response:
